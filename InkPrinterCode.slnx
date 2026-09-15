@@ -1,3 +1,10 @@
 <Solution>
-  <Project Path="InkPrinterCode.csproj" />
+  <!-- [2026-09-15] Unified repo layout: one solution at the repo root, one folder per
+       project. Project folders stay mutually independent (never nested inside another
+       project folder) to avoid MSBuild glob collisions (CS8802/CS0246 lesson). -->
+  <Project Path="InkPrinterCode\InkPrinterCode.csproj" />
+  <Project Path="DominoA200Sdk\DominoA200Sdk.csproj" />
+  <Project Path="DominoMockServer\DominoMockServer.csproj" />
+  <Project Path="DemoConsoleApp\DemoConsoleApp.csproj" />
+  <Project Path="DominoSdk.Harness\DominoSdk.Harness.csproj" />
 </Solution>

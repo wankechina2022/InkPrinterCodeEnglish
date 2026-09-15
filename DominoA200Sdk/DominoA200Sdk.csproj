@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>DominoA200Sdk</RootNamespace>
+    <AssemblyName>DominoA200Sdk</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>DominoA200Sdk</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Demo Author</Authors>
+    <Description>
+      Unofficial interoperability demo SDK for the Domino A200+ Codenet protocol.
+      Built by observing network traffic for interoperability purposes only.
+      This is NOT the official Domino SDK and is not for commercial resale.
+    </Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+</Project>
