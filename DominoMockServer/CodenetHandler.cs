@@ -22,6 +22,9 @@ public sealed class CodenetHandler
     private const byte ESC = 0x1B;
     private const byte EOT = 0x04;
 
+    /// <summary>Optional sink for malformed-frame diagnostics. Set to null to disable.</summary>
+    public Action<string>? Log { get; set; }
+
     /// <summary>The kind of command a frame encodes.</summary>
     public enum CommandKind
     {
@@ -106,8 +109,19 @@ public sealed class CodenetHandler
         // Send-cached-data: four decimal length digits followed by that many
         // characters of code text.
         if (payload.Length >= 4 && int.TryParse(payload.Substring(0, 4), out int declaredLength)
-            && declaredLength >= 0 && payload.Length >= 4 + declaredLength)
+            && declaredLength >= 0)
         {
+            // [2026-09-16] The declared length must match the bytes actually present
+            // (F5). A mismatch (truncated frame, corrupt length field) is rejected
+            // gracefully instead of letting Substring throw an out-of-range exception.
+            if (payload.Length < 4 + declaredLength)
+            {
+                Log?.Invoke("Malformed OE frame: declared length " + declaredLength.ToString()
+                    + " but only " + (payload.Length - 4).ToString()
+                    + " code bytes present; rejecting.");
+                return new ParsedCommand { Kind = CommandKind.Unknown };
+            }
+
             return new ParsedCommand
             {
                 Kind = CommandKind.PrintJob,

@@ -56,6 +56,10 @@ public sealed class MockPrinter : IDisposable
         _port = port;
         _printDurationMs = printDurationMs > 0 ? printDurationMs : 1500;
         _quiet = quiet;
+
+        // [2026-09-16] Route malformed-frame diagnostics from the protocol handler to
+        // this server's log (F5).
+        _handler.Log = msg => Log("PARSE", msg);
     }
 
     /// <summary>Port the server is bound to.</summary>
@@ -82,6 +86,21 @@ public sealed class MockPrinter : IDisposable
         }
 
         _listener = new TcpListener(IPAddress.Loopback, _port);
+
+        // [2026-09-16] Allow the port to be reused immediately after a restart so a
+        // quick re-run of the mock does not hit TIME_WAIT "address already in use"
+        // (F9-d). Both options must be set before the socket binds.
+        try
+        {
+            _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            _listener.Server.ExclusiveAddressUse = false;
+        }
+        catch (SocketException)
+        {
+            // Best-effort: if the option cannot be set, fall back to the default
+            // behaviour rather than failing to start.
+        }
+
         _listener.Start();
         _running = true;
 
@@ -138,6 +157,10 @@ public sealed class MockPrinter : IDisposable
 
     private void AcceptLoop()
     {
+        // [2026-09-16] Serve ONE client at a time (F9-a), matching a single physical
+        // printer. Accept a connection, handle it to completion (the session loop
+        // blocks until the client disconnects), then accept the next. This removes the
+        // cross-session FIFO contamination the old thread-per-client design allowed.
         while (_running)
         {
             try
@@ -156,14 +179,12 @@ public sealed class MockPrinter : IDisposable
                     _sessions.Add(session);
                 }
 
-                Log("CONNECT", "Client accepted.");
+                Log("CONNECT", "Client accepted; serving exclusively until it disconnects.");
 
-                Thread sessionThread = new Thread(session.Run)
-                {
-                    IsBackground = true,
-                    Name = "MockPrinter.Session"
-                };
-                sessionThread.Start();
+                // Block here until the client disconnects, so only one session is ever
+                // active at a time. ClientSession.Run swallows its own read errors in a
+                // try/catch, so this call returns cleanly once the client is gone.
+                session.Run();
             }
             catch (SocketException)
             {
@@ -264,14 +285,26 @@ public sealed class MockPrinter : IDisposable
     /// </summary>
     private void ScheduleCompletion(ClientSession session, MockJob job)
     {
-        Thread worker = new Thread(() =>
+        // [2026-09-16] Replace the per-job thread (F9-b) with a timer continuation: no
+        // thread is blocked for the print duration, which avoids thread leaks under load
+        // and keeps completion timing accurate.
+        System.Threading.Tasks.Task delayTask = System.Threading.Tasks.Task.Delay(_printDurationMs);
+        _ = delayTask.ContinueWith(_ =>
         {
             try
             {
-                Thread.Sleep(_printDurationMs);
-
                 if (!_running)
                 {
+                    return;
+                }
+
+                if (session.IsClosed)
+                {
+                    // [2026-09-16] The client disconnected before its print finished
+                    // (F9-c). Keep the existing suppression (do not push 0x32 to a dead
+                    // socket), but record that the job actually completed with no one to
+                    // tell.
+                    Log("PUSH", "Job " + job.JobId + " completed but the client was gone: " + job.Payload);
                     return;
                 }
 
@@ -284,13 +317,7 @@ public sealed class MockPrinter : IDisposable
             {
                 Log("WARN", "Completion push failed: " + ex.Message);
             }
-        })
-        {
-            IsBackground = true,
-            Name = "MockPrinter.Print"
-        };
-
-        worker.Start();
+        }, System.Threading.Tasks.TaskScheduler.Default);
     }
 
     // ============================================================
@@ -362,6 +389,9 @@ public sealed class MockPrinter : IDisposable
         private readonly NetworkStream _stream;
         private readonly object _writeLock = new object();
         private volatile bool _closed;
+
+        /// <summary>Whether this session's connection has been closed.</summary>
+        internal bool IsClosed => _closed;
 
         public ClientSession(TcpClient client, MockPrinter owner)
         {

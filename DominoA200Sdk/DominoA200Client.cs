@@ -59,6 +59,9 @@ public sealed class DominoA200Client : IDisposable
     private TcpClient? _tcpClient;
     private NetworkStream? _stream;
     private readonly object _ioLock = new object();
+    // [2026-09-16] Dedicated lock for the connect sequence so a user call racing the
+    // background ReconnectLoop cannot open two sockets (F2).
+    private readonly object _connectLock = new object();
 
     private Thread? _receiveThread;
     private volatile bool _running;
@@ -66,8 +69,17 @@ public sealed class DominoA200Client : IDisposable
     // [2026-09-15] Guards the reconnect loop: once Dispose() runs, HandleConnectionLoss
     // must not re-arm the loop or let a pending reconnect resurrect the client.
     private volatile bool _disposed;
+    // [2026-09-16] Connect-in-progress flag (F2): concurrent callers see this and
+    // return instead of double-connecting.
+    private volatile bool _connecting;
+    // [2026-09-16] Single-instance guard for the reconnect loop (F2). 0 = idle,
+    // 1 = a ReconnectLoop is running; set with CompareExchange, cleared on exit.
+    private int _reconnecting;
 
     private readonly List<byte> _rxBuffer = new List<byte>(256);
+    // [2026-09-16] Hard cap on the reassembly buffer (F4): an orphan ESC never
+    // followed by 0x04, or any malformed stream, can no longer grow it without bound.
+    private const int MaxRxBufferBytes = 64 * 1024;
     private readonly object _rxLock = new object();
 
     private readonly PrinterStateMachine _stateMachine = new PrinterStateMachine();
@@ -189,37 +201,72 @@ public sealed class DominoA200Client : IDisposable
     /// <exception cref="TimeoutException">Thrown when the connect exceeds the timeout.</exception>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_connected)
+        // [2026-09-16] Concurrency guard (F2): make the "already connected/connecting"
+        // check atomic and gate the rest behind the _connecting flag so a user call
+        // racing the background ReconnectLoop cannot open two sockets or spawn two
+        // receive threads for one logical connection. The lock is released before any
+        // await because Monitor is not async-aware (holding it across awaits would
+        // risk a SynchronizationLockException).
+        bool lockTaken = false;
+        try
         {
-            return;
+            System.Threading.Monitor.Enter(_connectLock, ref lockTaken);
+            if (_connected || _connecting)
+            {
+                return;
+            }
+            _connecting = true;
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                System.Threading.Monitor.Exit(_connectLock);
+            }
         }
 
-        TcpClient client = new TcpClient();
-
-        Task connectTask = client.ConnectAsync(_host, _port);
-
-        Task completed = await Task.WhenAny(connectTask, Task.Delay(_connectTimeoutMs, cancellationToken))
-            .ConfigureAwait(false);
-
-        if (completed != connectTask)
+        try
         {
-            client.Close();
-            throw new TimeoutException(
-                "Timed out connecting to printer " + _host + ":" + _port.ToString()
-                + " after " + _connectTimeoutMs.ToString() + " ms.");
-        }
+            TcpClient client = new TcpClient();
 
-        // Surface any connect fault (connection refused, unreachable host, ...).
-        await connectTask.ConfigureAwait(false);
+            Task connectTask = client.ConnectAsync(_host, _port);
 
-        client.ReceiveTimeout = _responseTimeoutMs;
-        client.SendTimeout = _responseTimeoutMs;
+            Task completed = await Task.WhenAny(connectTask, Task.Delay(_connectTimeoutMs, cancellationToken))
+                .ConfigureAwait(false);
 
-        lock (_ioLock)
-        {
-            _tcpClient = client;
-            _stream = client.GetStream();
-        }
+            if (completed != connectTask)
+            {
+                client.Close();
+                // [2026-09-16] Observe the abandoned connect task (F8-a) so a faulted
+                // connect (e.g. connection refused) never becomes an unobserved-task
+                // exception after we time out here.
+                _ = connectTask.ContinueWith(t => { try { t.GetAwaiter().GetResult(); } catch { } },
+                    System.Threading.Tasks.TaskScheduler.Default);
+                throw new TimeoutException(
+                    "Timed out connecting to printer " + _host + ":" + _port.ToString()
+                    + " after " + _connectTimeoutMs.ToString() + " ms.");
+            }
+
+            // Surface any connect fault (connection refused, unreachable host, ...).
+            await connectTask.ConfigureAwait(false);
+
+            client.ReceiveTimeout = _responseTimeoutMs;
+            client.SendTimeout = _responseTimeoutMs;
+
+            // [2026-09-16] Re-check after the awaits (F3): a Dispose() or intentional
+            // close may have landed while we were establishing the socket. Drop the
+            // socket so a disposed/closed client is never revived with a live stream.
+            if (_disposed || !_running)
+            {
+                client.Close();
+                return;
+            }
+
+            lock (_ioLock)
+            {
+                _tcpClient = client;
+                _stream = client.GetStream();
+            }
 
         _running = true;
         _connected = true;
@@ -245,6 +292,14 @@ public sealed class DominoA200Client : IDisposable
             .ConfigureAwait(false);
         await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(2), "clear history queue", cancellationToken)
             .ConfigureAwait(false);
+        }
+        finally
+        {
+            // [2026-09-16] Always release the connect-in-progress flag so a later call
+            // (including a queued concurrent caller or the next reconnect attempt) can
+            // proceed.
+            _connecting = false;
+        }
     }
 
     /// <summary>
@@ -347,6 +402,11 @@ public sealed class DominoA200Client : IDisposable
 
     /// <summary>
     /// Close the connection and stop the receive loop. Safe to call repeatedly.
+    /// <para>
+    /// <b>Note.</b> This method is effectively synchronous (F8-b): it blocks up to
+    /// ~1 second while <see cref="CloseInternal"/> joins the background receive
+    /// thread, then returns an already-completed task.
+    /// </para>
     /// </summary>
     public Task DisconnectAsync()
     {
@@ -396,7 +456,21 @@ public sealed class DominoA200Client : IDisposable
                 _ackValue = false;
             }
 
-            WriteFrame(frame);
+            // [2026-09-16] A failed write (IOException / ObjectDisposedException) means
+            // the link is already gone. Mark the connection as lost so the optional
+            // auto-reconnect path engages, then surface the existing contract exception
+            // naming the failed command (F7).
+            try
+            {
+                WriteFrame(frame);
+            }
+            catch (System.Exception ex) when (ex is System.IO.IOException || ex is System.ObjectDisposedException)
+            {
+                LogTraffic("WARN", "Write failed for '" + description + "': " + ex.Message);
+                HandleConnectionLoss();
+                throw new PrinterTimeoutException(
+                    "Write failed for '" + description + "'; the connection was lost.", ex);
+            }
 
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(_responseTimeoutMs);
 
@@ -478,19 +552,38 @@ public sealed class DominoA200Client : IDisposable
 
                 if (!stream.DataAvailable)
                 {
+                    // [2026-09-16] Detect a graceful peer close (FIN). NetworkStream
+                    // leaves DataAvailable false after a FIN, so a socket that is
+                    // readable but has zero bytes means EOF. Without this probe the loop
+                    // would sleep forever and never notice the lost connection (F1).
+                    if (_tcpClient != null && _tcpClient.Client != null
+                        && _tcpClient.Client.Poll(0, System.Net.Sockets.SelectMode.SelectRead)
+                        && _tcpClient.Client.Available == 0)
+                    {
+                        LogTraffic("WARN", "Peer closed the connection (graceful FIN).");
+                        HandleConnectionLoss();
+                        break;
+                    }
+
                     Thread.Sleep(5);
                     continue;
                 }
 
                 int read = stream.Read(chunk, 0, chunk.Length);
 
-                if (read > 0)
+                // [2026-09-16] A zero/negative read means the peer closed the
+                // connection. Treat it the same as a read exception (F1).
+                if (read <= 0)
                 {
-                    byte[] received = new byte[read];
-                    Array.Copy(chunk, 0, received, 0, read);
-                    LogTraffic("RX", CodenetFrame.ToHexString(received, received.Length));
-                    ProcessBytes(received);
+                    LogTraffic("WARN", "Read returned " + read.ToString() + " bytes; peer closed the connection.");
+                    HandleConnectionLoss();
+                    break;
                 }
+
+                byte[] received = new byte[read];
+                Array.Copy(chunk, 0, received, 0, read);
+                LogTraffic("RX", CodenetFrame.ToHexString(received, received.Length));
+                ProcessBytes(received);
             }
             catch (ObjectDisposedException)
             {
@@ -527,6 +620,19 @@ public sealed class DominoA200Client : IDisposable
         lock (_rxLock)
         {
             _rxBuffer.AddRange(data);
+
+            // [2026-09-16] Cap the reassembly buffer (F4). A malformed stream that never
+            // sends the 0x04 terminator (e.g. an orphan 0x1B) would otherwise grow the
+            // buffer without bound. If we exceed the cap, log and discard to resync
+            // rather than throwing.
+            if (_rxBuffer.Count > MaxRxBufferBytes)
+            {
+                LogTraffic("WARN", "Receive buffer exceeded " + MaxRxBufferBytes.ToString()
+                    + " bytes; discarding " + _rxBuffer.Count.ToString()
+                    + " buffered bytes to resync.");
+                _rxBuffer.Clear();
+                return;
+            }
 
             while (_rxBuffer.Count > 0)
             {
@@ -609,6 +715,15 @@ public sealed class DominoA200Client : IDisposable
             ? new PrinterEventArgs(entry.JobId, entry.CodeValue, DateTime.Now)
             : new PrinterEventArgs(string.Empty, string.Empty, DateTime.Now);
 
+        // [2026-09-16] An unsolicited 0x32 with no matching mirrored job (uncorrelated
+        // completion) is not an error, but it is worth a warning: the caller's JobId and
+        // CodeValue will be empty on this event. We still raise it so subscribers always
+        // learn that a print finished (F6).
+        if (entry == null)
+        {
+            LogTraffic("WARN", "Uncorrelated 0x32 completion received; raising OnJobCompleted with empty JobId/CodeValue.");
+        }
+
         if (_fifoMirror.Count == 0 && _stateMachine.State == PrinterState.Printing)
         {
             _stateMachine.TransitionTo(PrinterState.Idle);
@@ -650,7 +765,13 @@ public sealed class DominoA200Client : IDisposable
             _running = true;
 
             OnReconnecting?.Invoke(this, EventArgs.Empty);
-            _ = Task.Run(ReconnectLoop);
+
+            // [2026-09-16] Guarantee only one reconnect loop at a time (F2): if a loop
+            // is already running, don't spawn a second one.
+            if (System.Threading.Interlocked.CompareExchange(ref _reconnecting, 1, 0) == 0)
+            {
+                _ = Task.Run(ReconnectLoop);
+            }
         }
     }
 
@@ -659,6 +780,8 @@ public sealed class DominoA200Client : IDisposable
     /// </summary>
     private async Task ReconnectLoop()
     {
+        try
+        {
         // [2026-09-15] Added !_disposed to the loop condition: a reconnect started just
         // before Dispose() must not keep retrying (or silently reconnect) afterwards.
         while (_autoReconnect && _running && !_connected && !_disposed)
@@ -674,6 +797,14 @@ public sealed class DominoA200Client : IDisposable
 
                 LogTraffic("INFO", "Attempting reconnect to " + _host + ":" + _port.ToString() + " ...");
                 await ConnectAsync().ConfigureAwait(false);
+
+                // [2026-09-16] Re-check after the await (F3): the client may have been
+                // disposed or intentionally closed while we were reconnecting.
+                if (_disposed || !_running)
+                {
+                    return;
+                }
+
                 LogTraffic("INFO", "Reconnect succeeded.");
                 return;
             }
@@ -681,6 +812,13 @@ public sealed class DominoA200Client : IDisposable
             {
                 LogTraffic("WARN", "Reconnect attempt failed: " + ex.Message);
             }
+        }
+        }
+        finally
+        {
+            // [2026-09-16] Release the single-instance guard so a future connection loss
+            // can start a fresh reconnect loop (F2).
+            System.Threading.Interlocked.Exchange(ref _reconnecting, 0);
         }
     }
 
@@ -717,6 +855,16 @@ public sealed class DominoA200Client : IDisposable
 
             _stream = null;
             _tcpClient = null;
+        }
+
+        // [2026-09-16] Make the silent mirror reset observable (F6): dropping in-flight
+        // job ids is exactly the kind of thing that breaks a caller's FIFO accounting
+        // without a trace, so warn first when there is something to discard.
+        int pendingJobs = _fifoMirror.Count;
+        if (pendingJobs > 0)
+        {
+            LogTraffic("WARN", pendingJobs.ToString()
+                + " in-flight job id(s) discarded due to connection loss/reset.");
         }
 
         _fifoMirror.Clear();

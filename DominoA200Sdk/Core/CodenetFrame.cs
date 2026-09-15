@@ -82,11 +82,35 @@ public static class CodenetFrame
     /// barcode or QR wrapper is applied.</param>
     public static byte[] BuildPrintJobFrame(string codeValue)
     {
-        string text = codeValue ?? string.Empty;
+        // [2026-09-16] Validate the payload before framing (F5). The length field is a
+        // 4-digit zero-padded decimal, so it can encode at most 9999 characters; a
+        // null/empty payload, an over-length one, or any non-ASCII character would
+        // produce a frame the printer cannot parse, so reject it up front.
+        if (string.IsNullOrEmpty(codeValue))
+        {
+            throw new ArgumentException("Print job payload must not be null or empty.", nameof(codeValue));
+        }
+
+        if (codeValue.Length > 9999)
+        {
+            throw new ArgumentException(
+                "Print job payload is too long (" + codeValue.Length.ToString()
+                + " chars); the 4-digit length field supports at most 9999.", nameof(codeValue));
+        }
+
+        foreach (char c in codeValue)
+        {
+            if (c > 127)
+            {
+                throw new ArgumentException(
+                    "Print job payload contains a non-ASCII character (0x" + ((int)c).ToString("X2")
+                    + "); only ASCII text is supported.", nameof(codeValue));
+            }
+        }
 
         // 4-digit zero-padded decimal length of the payload that follows it.
-        string lengthText = text.Length.ToString("D4");
-        string payload = lengthText + text;
+        string lengthText = codeValue.Length.ToString("D4");
+        string payload = lengthText + codeValue;
 
         return BuildOeFrame(payload);
     }
