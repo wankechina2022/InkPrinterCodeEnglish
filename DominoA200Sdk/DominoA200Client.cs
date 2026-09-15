@@ -75,6 +75,12 @@ public sealed class DominoA200Client : IDisposable
     // [2026-09-16] Single-instance guard for the reconnect loop (F2). 0 = idle,
     // 1 = a ReconnectLoop is running; set with CompareExchange, cleared on exit.
     private int _reconnecting;
+    // [2026-09-16] Set by CloseInternal, cleared at the start of the next ConnectAsync.
+    // Distinguishes "an intentional close landed while a connect was in flight" from
+    // "a fresh client that has simply never connected" — _running is false in BOTH
+    // cases, so the earlier F3 check "_disposed || !_running" silently aborted every
+    // first connect (seen as "Client is not connected" on the first SendPrintJobAsync).
+    private volatile bool _closeRequested;
 
     private readonly List<byte> _rxBuffer = new List<byte>(256);
     // [2026-09-16] Hard cap on the reassembly buffer (F4): an orphan ESC never
@@ -216,6 +222,10 @@ public sealed class DominoA200Client : IDisposable
                 return;
             }
             _connecting = true;
+
+            // [2026-09-16] A fresh connect attempt supersedes any close request that
+            // landed before it (e.g. reconnecting after a clean DisconnectAsync).
+            _closeRequested = false;
         }
         finally
         {
@@ -256,7 +266,11 @@ public sealed class DominoA200Client : IDisposable
             // [2026-09-16] Re-check after the awaits (F3): a Dispose() or intentional
             // close may have landed while we were establishing the socket. Drop the
             // socket so a disposed/closed client is never revived with a live stream.
-            if (_disposed || !_running)
+            // [2026-09-16 fix] _running is deliberately NOT checked here — it is false
+            // on a fresh client too, and the old "_disposed || !_running" check
+            // silently aborted every first connect. The _closeRequested flag covers
+            // the intentional-close case without breaking the first-connect path.
+            if (_disposed || _closeRequested)
             {
                 client.Close();
                 return;
@@ -829,6 +843,12 @@ public sealed class DominoA200Client : IDisposable
     private void CloseInternal()
     {
         bool wasConnected = _connected;
+
+        // [2026-09-16] Mark that a close was requested. An in-flight ConnectAsync reads
+        // this after its awaits and aborts instead of reviving a closed client. Cleared
+        // by the next ConnectAsync, so reconnecting after a clean disconnect still works
+        // (and the reconnect loop's own ConnectAsync call consumes it as well).
+        _closeRequested = true;
 
         _running = false;
         _connected = false;

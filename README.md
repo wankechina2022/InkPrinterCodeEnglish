@@ -243,7 +243,11 @@ dotnet test
 
 ## Requirements
 
-- **.NET 8 SDK** (the library and demo target `net8.0`)
+- **.NET 8 SDK** (the library, mock, demo and tests target `net8.0`)
+- **.NET 6 targeting pack / Desktop Runtime** — the `InkPrinterCode` WinForms host
+  targets `net6.0-windows` (the last LTS with Windows 7 support); building the full
+  solution needs the .NET 6 targeting pack, running the host needs the .NET 6 Desktop
+  Runtime (x64)
 - No external dependencies; the SDK is dependency-free by design
 - Tests require the xUnit runner packages, restored automatically
 
