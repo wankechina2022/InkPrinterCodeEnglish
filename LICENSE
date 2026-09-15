@@ -24,8 +24,10 @@ SOFTWARE.
 IMPORTANT NOTICE — SCOPE OF THIS LICENSE
 ================================================================================
 
-This project is built by capturing network traffic for interoperability
-purposes.
+This project is built by capturing network traffic and reverse engineering the
+observed wire behaviour. The protocol knowledge embodied here was obtained solely
+through packet capture in our own integration environment — for learning and
+technical verification only.
 
 This is NOT the official Domino SDK, and it is not affiliated with, endorsed by,
 or supported by Domino Printing Sciences plc or any of its subsidiaries.

@@ -2,25 +2,32 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- [2026-09-11] 万总确认客户现场为 Win7 SP1 x64，.NET 8 不支持 Win7（最低 Win10 1607），
-         降到 .NET 6（支持 Win7 的最后一个 LTS）。代码经扫描确认零依赖 .NET 8 独有 API 与 C# 11/12 语法，
-         Environment.TickCount64 为 .NET Core 3.0+ API，net6 原生支持 → 仅改本行，代码文件零改动。
-         部署要求：目标机安装 .NET 6 Desktop Runtime (x64)。 -->
+    <!-- [2026-09-11] Confirmed by Wan: the customer site runs Win7 SP1 x64. .NET 8 does not
+         support Win7 (minimum Win10 1607), so the target was lowered to .NET 6 — the last LTS
+         supporting Win7. A code scan confirmed zero dependence on .NET 8-only APIs or C# 11/12
+         syntax; Environment.TickCount64 is a .NET Core 3.0+ API natively supported on net6.
+         Therefore only this line changed, with zero changes to code files.
+         Deployment requirement: .NET 6 Desktop Runtime (x64) must be installed on the target machine. -->
     <TargetFramework>net6.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- [2026-09-10] 第三方依赖（阶段二起不再使用 App.config 配置文件，参数存数据库 SystemConfig 表）
-       Microsoft.Data.Sqlite：SQLite 数据访问，微软官方包，无需手动携带 native dll
-       NPOI                ：Excel 读写（.xls / .xlsx 都支持），导入取第一列、导出用流式 SXSSF
-       版本全部锁定在 8.0 线（[2026-09-11] 降 net6 后包不变：三个包均含 netstandard2.0/net6 目标，net6 直接可用；
-       勿升 9.x/10.x）；NPOI 锁 2.7.5 稳定线
-       [2026-09-10] 移除 System.Configuration.ConfigurationManager —— 配置文件已废弃（万总拍板：
-       反写配置文件有格式损坏导致程序无法启动的历史事故，改为内置默认值 + SystemConfig 表双保险）
-       [2026-09-10] 阶段二第 2 轮新增 System.IO.Ports —— .NET 8 里 SerialPort 不在共享框架内，
-       串口连接（SerialPrinterConnection）必须显式引用此包，仍锁 8.0 线 -->
+  <!-- [2026-09-10] Third-party dependencies (since Phase 2, App.config is no longer used;
+       all settings live in the database SystemConfig table)
+       Microsoft.Data.Sqlite : SQLite data access, official Microsoft package, no manual native dll shipping needed
+       NPOI                  : Excel read/write (.xls / .xlsx); import takes the first column, export uses streaming SXSSF
+       Versions are locked to the 8.0 line ([2026-09-11] packages unchanged after the net6 downgrade:
+       all three packages ship netstandard2.0/net6 targets, directly usable on net6;
+       do NOT upgrade to 9.x/10.x); NPOI locked to the stable 2.7.5 line.
+       [2026-09-10] Removed System.Configuration.ConfigurationManager — config files are deprecated
+       (decision by Wan: writing back to a config file previously caused format corruption that
+       prevented the program from starting; replaced by built-in defaults + SystemConfig table as a
+       double safeguard).
+       [2026-09-10] Phase 2 round 2 added System.IO.Ports — on .NET 8 (and net6), SerialPort is not
+       in the shared framework; the serial connection (SerialPrinterConnection) requires this
+       explicit package reference, still locked to the 8.0 line. -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
     <PackageReference Include="NPOI" Version="2.7.5" />

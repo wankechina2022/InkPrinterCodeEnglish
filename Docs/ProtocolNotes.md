@@ -3,7 +3,11 @@
 Observations on the wire behaviour of the Domino A200+ Codenet interface, recorded
 from captured network traffic while integrating with the device.
 
-> **Scope of this document.** These notes describe only what was *observed on the
+> **Scope and compliance of this document.** The byte values and behaviours described
+> here were obtained **by reverse engineering captured network traffic** (packet
+> capture in our own integration environment) — no vendor manual or official
+> documentation was consulted. This material is published **for learning and
+> technical verification only**. These notes describe only what was *observed on the
 > wire*. They deliberately do not reproduce, transcribe or paraphrase any vendor
 > manual, and byte values listed here were read off a network capture rather than
 > copied from documentation. Where behaviour was inferred rather than observed, it is

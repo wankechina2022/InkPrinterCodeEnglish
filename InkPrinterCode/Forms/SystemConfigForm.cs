@@ -200,7 +200,7 @@ namespace InkPrinterCode.Forms
             string labelText, TextBox input, string tipText)
         {
             Label label = new Label();
-            label.Text = labelText + "：";
+            label.Text = labelText + ":"; // [2026-09-15] plain ASCII colon for the English UI
             label.Location = new Point(labelX, row + 5);
             label.Size = new Size(125, 23);
 

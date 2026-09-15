@@ -15,13 +15,25 @@ the whole thing can be evaluated end to end without a physical printer.
 
 ## ⚠️ Important notice — read first
 
-> **This project is built by capturing network traffic for interoperability purposes.**
->
 > **This is NOT the official Domino SDK.** It is not affiliated with, endorsed by, or
 > supported by Domino Printing Sciences plc.
 >
 > **This demo is only for technical demonstration, not for commercial sale of
 > Domino-related SDK.**
+
+### Compliance statement / 合规说明
+
+> **本协议是通过网络抓包（packet capture）逆向工程（reverse engineering）反向分析得到的，
+> 本项目仅用于学习和技术验证，不得用于商业用途。**
+>
+> The protocol described and implemented here was obtained **solely by reverse
+> engineering captured network traffic** (packet sniffing of our own integration
+> environment). No vendor manual, SDK, firmware image or confidential documentation
+> was consulted, reproduced or distributed.
+>
+> This project exists **for learning and technical verification only**: studying how a
+> byte-level device protocol works, and validating that study in code. It must not be
+> used for commercial purposes, nor relied upon for production integrations.
 
 The code here is an independent interoperability study. It is published for
 educational and portfolio purposes so that others can see how a byte-level device
@@ -37,10 +49,11 @@ trademark or documentation — see [LICENSE](LICENSE) for the full statement.
 
 | Project | Type | Purpose |
 |---|---|---|
-| **`src/DominoA200Sdk`** | Class library | The client you reference. Hides TCP, framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. |
-| **`src/DominoMockServer`** | Console app | Simulates an A200+ over TCP. No printer required. Logs all traffic as hex. |
-| **`src/DemoConsoleApp`** | Console app | A short end-to-end demonstration of the SDK against the mock. |
-| **`tests/DominoSdk.Harness`** | xUnit project | Automated tests that start the mock themselves and assert on protocol behaviour. |
+| **`DominoA200Sdk`** | Class library | The client you reference. Hides TCP, framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. |
+| **`DominoMockServer`** | Console app | Simulates an A200+ over TCP. No printer required. Logs all traffic as hex. |
+| **`DemoConsoleApp`** | Console app | A short end-to-end demonstration of the SDK against the mock. |
+| **`DominoSdk.Harness`** | xUnit project | Automated tests that start the mock themselves and assert on protocol behaviour. |
+| **`InkPrinterCode`** | WinForms app | The host application this SDK work originated from. |
 
 ---
 
@@ -169,42 +182,42 @@ non-trivial:
 ## Repository layout
 
 ```
-DominoA200Plus-Codenet-Sdk
-├── README.md                     ← this file
-├── LICENSE                       ← MIT, with the non-official-SDK notice
+InkPrinterCode/                    ← repository root = solution root
+├── README.md                      ← this file
+├── LICENSE                        ← MIT, with the non-official-SDK notice
+├── InkPrinterCode.slnx            ← the solution (5 projects)
 ├── Docs
-│   ├── ApiReference.md           ← full API documentation
-│   └── ProtocolNotes.md          ← observed wire behaviour and byte examples
-├── src
-│   ├── DominoA200Sdk             ← the client library
-│   │   ├── Core
-│   │   │   ├── CodenetFrame.cs
-│   │   │   ├── PrinterStateMachine.cs
-│   │   │   └── JobQueue.cs
-│   │   ├── Models
-│   │   │   ├── PrintJob.cs
-│   │   │   ├── PrinterStatus.cs
-│   │   │   └── PrinterEventArgs.cs
-│   │   ├── Exceptions
-│   │   │   ├── PrinterNackException.cs
-│   │   │   └── PrinterTimeoutException.cs
-│   │   └── DominoA200Client.cs
-│   ├── DominoMockServer          ← TCP simulator
-│   │   ├── MockPrinter.cs
-│   │   ├── MockFifoQueue.cs
-│   │   ├── CodenetHandler.cs
-│   │   └── Program.cs
-│   └── DemoConsoleApp            ← demonstration
-│       └── Program.cs
-└── tests
-    └── DominoSdk.Harness         ← automated tests (xUnit)
-        ├── TestFixture
-        │   └── MockServerFixture.cs
-        └── TestCases
-            ├── ConnectTests.cs
-            ├── SendJobTests.cs
-            ├── JobCompleteEventTests.cs
-            └── DisconnectReconnectTests.cs
+│   ├── ApiReference.md            ← full API documentation
+│   └── ProtocolNotes.md           ← observed wire behaviour and byte examples
+├── InkPrinterCode/                ← WinForms host application
+├── DominoA200Sdk/                 ← the client library
+│   ├── Core
+│   │   ├── CodenetFrame.cs
+│   │   ├── PrinterStateMachine.cs
+│   │   └── JobQueue.cs
+│   ├── Models
+│   │   ├── PrintJob.cs
+│   │   ├── PrinterStatus.cs
+│   │   └── PrinterEventArgs.cs
+│   ├── Exceptions
+│   │   ├── PrinterNackException.cs
+│   │   └── PrinterTimeoutException.cs
+│   └── DominoA200Client.cs
+├── DominoMockServer/              ← TCP simulator
+│   ├── MockPrinter.cs
+│   ├── MockFifoQueue.cs
+│   ├── CodenetHandler.cs
+│   └── Program.cs
+├── DemoConsoleApp/                ← demonstration
+│   └── Program.cs
+└── DominoSdk.Harness/             ← automated tests (xUnit)
+    ├── TestFixture
+    │   └── MockServerFixture.cs
+    └── TestCases
+        ├── ConnectTests.cs
+        ├── SendJobTests.cs
+        ├── JobCompleteEventTests.cs
+        └── DisconnectReconnectTests.cs
 ```
 
 ---
