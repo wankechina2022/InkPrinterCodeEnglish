@@ -146,13 +146,18 @@ WHERE Id = @Id AND PrintStatus = 0;";
         /// [Memory estimate] 100k rows x about 20 characters is roughly 6 MB, which is manageable; above the threshold (the DedupHashSetThreshold setting)
         ///   ImportBLL switches to batched IN queries via GetExistingCodeValues and does not call this method.
         /// </summary>
-        public static List<string> GetAllCodeValues()
+        public static List<string> GetAllCodeValues(Func<bool>? isCanceled = null)
         {
             List<string> values = new List<string>();
 
             DataTable table = SqliteHelper.ExecuteQuery("SELECT CodeValue FROM CodeData;");
             for (int i = 0; i < table.Rows.Count; i++)
             {
+                // [2026-09-16] P2: honour cancellation during the dedup fetch (mirrors the write-phase pattern)
+                if (isCanceled != null && isCanceled())
+                {
+                    break;
+                }
                 values.Add(table.Rows[i]["CodeValue"].ToSafeString());
             }
 
@@ -167,7 +172,7 @@ WHERE Id = @Id AND PrintStatus = 0;";
         ///
         /// [Return value] The set of code values that already exist. The caller uses it to remove those entries from the candidates.
         /// </summary>
-        public static HashSet<string> GetExistingCodeValues(List<string> candidates)
+        public static HashSet<string> GetExistingCodeValues(List<string> candidates, Func<bool>? isCanceled = null)
         {
             HashSet<string> existing = new HashSet<string>();
 
@@ -180,6 +185,12 @@ WHERE Id = @Id AND PrintStatus = 0;";
 
             for (int startIndex = 0; startIndex < candidates.Count; startIndex += batchSize)
             {
+                // [2026-09-16] P2: honour cancellation between batches during the dedup fetch (mirrors the write-phase pattern)
+                if (isCanceled != null && isCanceled())
+                {
+                    break;
+                }
+
                 int count = batchSize;
                 if (startIndex + count > candidates.Count)
                 {
@@ -378,6 +389,49 @@ WHERE Id = @Id AND PrintStatus = 0;";
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// [2026-09-16] Streaming export path (supersedes QueryForExport + ExcelHelper.ExportDataTable).
+        ///
+        /// [Mechanism] Opens the same filtered SELECT as QueryForExport but hands a forward-only SqliteDataReader to the
+        ///   supplied callback; the reader (and its connection/command) is opened and disposed inside this method via the
+        ///   callback pattern, so the caller never sees an open reader and cannot leak the SQLite handle.
+        /// [Column projection] Mirrors QueryForExport's C# conversion 1:1 -- Id -> "No.", CodeValue -> "Code Value",
+        ///   PrintStatus -> "Status" text (via CASE), CreateTime -> "Import Time" -- so the exported file content is identical.
+        /// </summary>
+        /// <param name="filter">Filter conditions (paging is ignored, exactly like QueryForExport)</param>
+        /// <param name="consume">Callback that writes the reader to the xlsx file; the reader is valid only for the duration of the call</param>
+        public static void QueryForExportReader(CodeQueryFilter filter, Action<SqliteDataReader> consume)
+        {
+            if (filter == null)
+            {
+                return;
+            }
+
+            List<SqliteParameter> parameters = new List<SqliteParameter>();
+            string whereClause = BuildWhereClause(filter, false, parameters);
+
+            // Status -> text projection keeps the exported "Status" column identical to the legacy QueryForExport path
+            string sql = "SELECT "
+                       + "Id AS \"No.\", "
+                       + "CodeValue AS \"Code Value\", "
+                       + "CASE PrintStatus WHEN 0 THEN 'Not Printed' WHEN 1 THEN 'Printed' WHEN 2 THEN 'Failed' WHEN 3 THEN 'Voided' ELSE 'Unknown(' || PrintStatus || ')' END AS \"Status\", "
+                       + "CreateTime AS \"Import Time\" "
+                       + "FROM CodeData " + whereClause + " ORDER BY Id ASC;";
+
+            using (SqliteConnection connection = SqliteHelper.CreateConnection())
+            {
+                using (SqliteCommand command = new SqliteCommand(sql, connection))
+                {
+                    SqliteHelper.AddParameters(command, parameters.ToArray());
+
+                    using (SqliteDataReader reader = command.ExecuteReader())
+                    {
+                        consume(reader);
+                    }
+                }
+            }
         }
 
         // ============================================================

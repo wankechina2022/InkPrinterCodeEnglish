@@ -188,7 +188,7 @@ namespace InkPrinterCode.BLL
             {
                 if (candidates.Count > 0)
                 {
-                    HashSet<string> existingSet = BuildExistingSet(candidates);
+                    HashSet<string> existingSet = BuildExistingSet(candidates, token);
 
                     for (int i = 0; i < candidates.Count; i++)
                     {
@@ -326,7 +326,7 @@ namespace InkPrinterCode.BLL
         /// <summary>
         /// Build the set of "code values already in the database" (dual path)
         /// </summary>
-        private static HashSet<string> BuildExistingSet(List<CodeData> candidates)
+        private static HashSet<string> BuildExistingSet(List<CodeData> candidates, CancellationToken token)
         {
             HashSet<string> existingSet = new HashSet<string>();
 
@@ -341,7 +341,7 @@ namespace InkPrinterCode.BLL
             if (dbTotal <= threshold)
             {
                 // Path 1: the database is small, read everything into memory for comparison
-                List<string> allValues = CodeDataDAL.GetAllCodeValues();
+                List<string> allValues = CodeDataDAL.GetAllCodeValues(delegate () { return token.IsCancellationRequested; });
                 for (int i = 0; i < allValues.Count; i++)
                 {
                     existingSet.Add(allValues[i]);
@@ -358,10 +358,16 @@ namespace InkPrinterCode.BLL
                     candidateValues.Add(candidates[i].CodeValue);
                 }
 
-                existingSet = CodeDataDAL.GetExistingCodeValues(candidateValues);
+                existingSet = CodeDataDAL.GetExistingCodeValues(candidateValues, delegate () { return token.IsCancellationRequested; });
 
                 LogHelper.Instance.Debug("Deduplication uses the batched IN query path, database row count=" + dbTotal.ToString()
                                          + ", candidate row count=" + candidateValues.Count.ToString());
+            }
+
+            // [2026-09-16] P2: propagate cancellation out of the dedup phase (mirrors the write-phase pattern in ImportFromFile)
+            if (token.IsCancellationRequested)
+            {
+                throw new OperationCanceledException();
             }
 
             return existingSet;

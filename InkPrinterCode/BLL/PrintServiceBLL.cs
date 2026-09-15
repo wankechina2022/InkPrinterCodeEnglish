@@ -78,7 +78,7 @@ namespace InkPrinterCode.BLL
     ///   UI only (LogDevice): the device interaction process — 0x06 responses / 0x32 print-done / code sends / successful commands /
     ///     all test print lines. The operator can see the "receive feedback → send next code" cycle clearly from this.
     /// </summary>
-    public class PrintServiceBLL
+    public class PrintServiceBLL : IDisposable
     {
         // ============================================================
         // Events to the UI (all triggered on background threads; the UI side must Invoke back to the UI thread)
@@ -2178,6 +2178,37 @@ namespace InkPrinterCode.BLL
                 {
                     System.Diagnostics.Debug.WriteLine("DashboardChanged event handler exception: " + ex.Message);
                 }
+            }
+        }
+
+        // ============================================================
+        // [2026-09-16] IDisposable (P2): release the two AutoResetEvent handles.
+        // [Scope] ONLY the two events are disposed here -- no thread kills, no connection changes, no other state touched;
+        //   double-dispose is guarded by the _disposed flag.
+        // ============================================================
+
+        /// <summary>Disposal guard so Dispose can be called more than once safely</summary>
+        private bool _disposed = false;
+
+        /// <summary>
+        /// Release the wait-handle resources owned by this instance.
+        /// [2026-09-16] P2 fix: _statusFrameEvent and _printDoneEvent were previously never disposed.
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+
+            if (_statusFrameEvent != null)
+            {
+                _statusFrameEvent.Dispose();
+            }
+            if (_printDoneEvent != null)
+            {
+                _printDoneEvent.Dispose();
             }
         }
     }

@@ -170,7 +170,8 @@
         /// </summary>
         public static string ConnectionString
         {
-            get { return "Data Source=" + DbFilePath + ";"; }
+            // [2026-09-16] P1: append BusyTimeout so concurrent writers do not immediately fail with SQLITE_BUSY
+            get { return "Data Source=" + DbFilePath + ";BusyTimeout=5000;"; }
         }
 
         // ============================================================

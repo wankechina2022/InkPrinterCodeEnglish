@@ -287,6 +287,9 @@ namespace InkPrinterCode.Common
                     string line = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "] Row="
                                   + rowNo.ToString() + "  Code=" + safeCode + "  Source=" + safeSource;
 
+                    // [2026-09-16] P2: also trigger the one-time log cleanup from the duplicate-log write path
+                    EnsureCleanupOnce();
+
                     AppendToFile("duplicate_" + DateTime.Now.ToString("yyyyMMdd") + ".log", line);
                 }
             }

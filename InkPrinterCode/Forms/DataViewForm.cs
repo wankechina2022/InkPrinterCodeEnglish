@@ -452,12 +452,17 @@ namespace InkPrinterCode.Forms
 
                 try
                 {
-                    DataTable table = CodeQueryBLL.QueryForExport(BuildFilter());
-                    ExcelHelper.ExportDataTable(table, dialog.FileName, "CodeData");
+                    // [2026-09-16] Switched to the streaming export (reader -> SXSSF) so large result
+                    //   sets no longer load fully into memory; UI behavior and columns are unchanged.
+                    long exportedRows = 0;
+                    CodeQueryBLL.ExportToFile(BuildFilter(), dialog.FileName, "CodeData", delegate (long rows)
+                    {
+                        exportedRows = rows;
+                    });
 
                     LogHelper.Instance.Info("Excel export succeeded, file=" + dialog.FileName
-                                            + ", rows=" + table.Rows.Count.ToString());
-                    MessageHelper.ShowInfo("Export succeeded!\r\n\r\nTotal " + table.Rows.Count.ToString()
+                                            + ", rows=" + exportedRows.ToString());
+                    MessageHelper.ShowInfo("Export succeeded!\r\n\r\nTotal " + exportedRows.ToString()
                                            + " records\r\nFile location: " + dialog.FileName);
                 }
                 catch (Exception ex)

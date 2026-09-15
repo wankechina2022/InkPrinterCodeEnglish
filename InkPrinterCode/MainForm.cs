@@ -429,6 +429,16 @@ namespace InkPrinterCode
             {
                 LogHelper.Instance.Error("Failed to stop the printing service on exit", ex);
             }
+
+            // [2026-09-16] P2: dispose the print-service instance on form close so its AutoResetEvent handles are released
+            try
+            {
+                _printService.Dispose();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.Instance.Error("Failed to dispose the printing service on exit", ex);
+            }
         }
 
         // ============================================================

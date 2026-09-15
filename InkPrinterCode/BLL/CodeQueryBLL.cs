@@ -1,4 +1,5 @@
 ﻿using System.Data;
+using Microsoft.Data.Sqlite;
 using InkPrinterCode.Common;
 using InkPrinterCode.DAL;
 using InkPrinterCode.Model;
@@ -50,6 +51,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Query all data under the current filter conditions (for export; pagination is ignored)
+        /// [2026-09-16] Superseded by the streaming ExportToFile; retained for other callers / backward compatibility.
         /// </summary>
         public static DataTable QueryForExport(CodeQueryFilter filter)
         {
@@ -59,6 +61,27 @@ namespace InkPrinterCode.BLL
             }
 
             return CodeDataDAL.QueryForExport(filter);
+        }
+
+        /// <summary>
+        /// [2026-09-16] Streaming export (supersedes QueryForExport + ExcelHelper.ExportDataTable).
+        ///
+        /// [Benefit] The result set is streamed straight from the reader to the xlsx file through
+        ///   CodeDataDAL.QueryForExportReader + ExcelHelper.ExportDataReader, so export no longer loads the whole
+        ///   table into memory first; the visible UI behavior (file dialog, messages, columns) is unchanged.
+        /// </summary>
+        /// <param name="filter">Filter conditions (paging is ignored)</param>
+        /// <param name="filePath">Save path (.xlsx)</param>
+        /// <param name="sheetName">Worksheet name</param>
+        /// <returns>Number of exported data rows. [2026-09-16] Return value added so the streaming
+        ///   path can report the row count like the legacy DataTable path did.</returns>
+        public static int ExportToFile(CodeQueryFilter filter, string filePath, string sheetName)
+        {
+            // [2026-09-16] row count is produced by the streaming writer itself
+            return CodeDataDAL.QueryForExportReader(filter, delegate (SqliteDataReader reader)
+            {
+                return ExcelHelper.ExportDataReader(reader, filePath, sheetName);
+            });
         }
 
         /// <summary>

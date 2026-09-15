@@ -1,4 +1,5 @@
 ﻿using System.Data;
+using Microsoft.Data.Sqlite;
 using System.Globalization;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.Streaming;
@@ -232,6 +233,126 @@ namespace InkPrinterCode.Common
                 // The second parameter leaveOpen=false: let NPOI finish up after writing, and the file stream is then
                 // explicitly released once more in this method's finally (idempotent)
                 workbook.Write(stream, false);
+            }
+            finally
+            {
+                if (workbook != null)
+                {
+                    try
+                    {
+                        workbook.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Failed to close the export workbook: " + ex.Message);
+                    }
+
+                    // SXSSFWorkbook writes rows beyond the in-memory window to a temporary file, which only Dispose can clean up
+                    IDisposable? disposableWorkbook = workbook as IDisposable;
+                    if (disposableWorkbook != null)
+                    {
+                        try
+                        {
+                            disposableWorkbook.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine("Failed to clean up the export workbook's temporary files: " + ex.Message);
+                        }
+                    }
+                }
+
+                if (stream != null)
+                {
+                    stream.Dispose();
+                }
+            }
+        }
+
+        // ============================================================
+        // Streaming export (used by the data view page)
+        // ============================================================
+
+        /// <summary>
+        /// [2026-09-16] Streaming export: write a forward-only SqliteDataReader straight to an xlsx file.
+        ///
+        /// [Purpose] Avoids loading the entire result set into a DataTable first, so exporting hundreds of thousands
+        ///   of rows keeps memory flat (the query side was the memory problem in the legacy QueryForExport path).
+        /// [Behavior] Mirrors ExportDataTable exactly: same SXSSF workbook, header row taken from reader.GetName(i),
+        ///   every cell written as a string (long codes are never turned into scientific notation), same using/dispose discipline.
+        /// [Ownership] The reader is owned and disposed by the caller (the DAL opens it, invokes this method, then disposes it);
+        ///   this method only reads from it and never closes it.
+        /// </summary>
+        /// <param name="reader">An open, forward-only data reader (already positioned before the first row)</param>
+        /// <param name="filePath">Save path (.xlsx)</param>
+        /// <param name="sheetName">Worksheet name; uses Sheet1 when empty</param>
+        /// <returns>Number of data rows written (header row excluded). [2026-09-16] Added so the
+        ///   streaming path can report the exported row count like the legacy DataTable path did.</returns>
+        public static int ExportDataReader(SqliteDataReader reader, string filePath, string sheetName)
+        {
+            if (reader == null)
+            {
+                throw new ArgumentNullException(nameof(reader), "The data reader to export cannot be null");
+            }
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                throw new ArgumentException("The export path cannot be empty", nameof(filePath));
+            }
+
+            string? folder = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(folder))
+            {
+                if (!ValidateHelper.EnsureFolderExists(folder))
+                {
+                    throw new IOException("The export directory is unavailable: " + folder);
+                }
+            }
+
+            string finalSheetName = "Sheet1";
+            if (!string.IsNullOrWhiteSpace(sheetName))
+            {
+                finalSheetName = sheetName;
+            }
+
+            SXSSFWorkbook? workbook = null;
+            FileStream? stream = null;
+
+            try
+            {
+                workbook = new SXSSFWorkbook();
+                ISheet sheet = workbook.CreateSheet(finalSheetName);
+
+                int columnCount = reader.FieldCount;
+
+                // Header row
+                IRow headerRow = sheet.CreateRow(0);
+                for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+                {
+                    ICell headerCell = headerRow.CreateCell(columnIndex);
+                    headerCell.SetCellValue(reader.GetName(columnIndex));
+                }
+
+                // Data rows: everything is written as a string, preventing long codes from being recognized as numbers
+                // by Excel and displayed in scientific notation
+                int rowIndex = 1;
+                while (reader.Read())
+                {
+                    IRow dataRow = sheet.CreateRow(rowIndex);
+                    for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+                    {
+                        ICell dataCell = dataRow.CreateCell(columnIndex);
+                        object? value = reader.GetValue(columnIndex);
+                        dataCell.SetCellValue(value.ToSafeString());
+                    }
+                    rowIndex++;
+                }
+
+                stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+                // The second parameter leaveOpen=false: let NPOI finish up after writing, and the file stream is then
+                // explicitly released once more in this method's finally (idempotent)
+                workbook.Write(stream, false);
+
+                return rowIndex - 1; // [2026-09-16] data rows written (header excluded)
             }
             finally
             {
