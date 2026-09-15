@@ -1,5 +1,6 @@
 using DominoA200Sdk;
 using DominoA200Sdk.Core;
+using DominoA200Sdk.Exceptions;
 using DominoA200Sdk.Models;
 using DominoSdk.Harness.TestFixture;
 using Xunit;
@@ -265,7 +266,9 @@ public sealed class DisconnectReconnectTests
 
             Assert.False(client.IsConnected,
                 "A command timeout without auto-reconnect must close the connection.");
-            Assert.Equal(1, Volatile.Read(ref disconnectedEvents),
+            // [2026-09-16 fix] xUnit's Assert.Equal takes no message argument (that is
+            // NUnit syntax), so the count assertion goes through Assert.True instead.
+            Assert.True(Volatile.Read(ref disconnectedEvents) == 1,
                 "The client should have raised OnDisconnected exactly once.");
         }
         finally

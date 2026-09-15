@@ -1,4 +1,5 @@
 using DominoA200Sdk;
+using DominoA200Sdk.Core;
 using DominoA200Sdk.Exceptions;
 using DominoA200Sdk.Models;
 using DominoSdk.Harness.TestFixture;
