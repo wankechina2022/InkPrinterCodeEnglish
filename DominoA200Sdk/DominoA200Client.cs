@@ -63,6 +63,9 @@ public sealed class DominoA200Client : IDisposable
     private Thread? _receiveThread;
     private volatile bool _running;
     private volatile bool _connected;
+    // [2026-09-15] Guards the reconnect loop: once Dispose() runs, HandleConnectionLoss
+    // must not re-arm the loop or let a pending reconnect resurrect the client.
+    private volatile bool _disposed;
 
     private readonly List<byte> _rxBuffer = new List<byte>(256);
     private readonly object _rxLock = new object();
@@ -354,6 +357,10 @@ public sealed class DominoA200Client : IDisposable
     /// <summary>Release all resources.</summary>
     public void Dispose()
     {
+        // [2026-09-15] Set before teardown so an in-flight reconnect loop stops and
+        // HandleConnectionLoss cannot re-arm it afterwards.
+        _disposed = true;
+
         CloseInternal();
         _commandLock.Dispose();
         GC.SuppressFinalize(this);
@@ -629,11 +636,19 @@ public sealed class DominoA200Client : IDisposable
             return;
         }
 
-        OnDisconnected?.Invoke(this, EventArgs.Empty);
-        _stateMachine.TransitionTo(PrinterState.Disconnected);
-
-        if (_autoReconnect && _running)
+        // [2026-09-15] Fix: CloseInternal() clears _running, which is exactly the flag
+        // the reconnect loop checks — so with auto-reconnect enabled the recovery loop
+        // could never start (caught by AutoReconnect_EngagesWhenCommandTimesOut: no
+        // OnReconnecting ever fired after a command timeout). Re-arm the flag here.
+        // The old receive thread has already been joined by CloseInternal(), and
+        // ConnectAsync() will start a fresh one once the printer answers again.
+        // OnDisconnected and the Disconnected transition are intentionally NOT raised
+        // here: CloseInternal() already delivered both for this loss path (this also
+        // removes a double-fire of OnDisconnected).
+        if (_autoReconnect && !_disposed)
         {
+            _running = true;
+
             OnReconnecting?.Invoke(this, EventArgs.Empty);
             _ = Task.Run(ReconnectLoop);
         }
