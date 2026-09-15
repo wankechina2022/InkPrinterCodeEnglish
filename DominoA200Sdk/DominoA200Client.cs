@@ -659,7 +659,9 @@ public sealed class DominoA200Client : IDisposable
     /// </summary>
     private async Task ReconnectLoop()
     {
-        while (_autoReconnect && _running && !_connected)
+        // [2026-09-15] Added !_disposed to the loop condition: a reconnect started just
+        // before Dispose() must not keep retrying (or silently reconnect) afterwards.
+        while (_autoReconnect && _running && !_connected && !_disposed)
         {
             try
             {
