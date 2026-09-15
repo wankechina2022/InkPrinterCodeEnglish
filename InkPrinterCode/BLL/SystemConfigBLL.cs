@@ -156,7 +156,7 @@ namespace InkPrinterCode.BLL
             AddItem(items, inputValues, ConfigHelper.KEY_RECONNECT_INTERVAL_MS, reconnectInterval.Value.ToString());
             AddItem(items, inputValues, ConfigHelper.KEY_INITIAL_CACHE_COUNT, cacheCount.Value.ToString());
             AddItem(items, inputValues, ConfigHelper.KEY_MAX_RETRY_COUNT, maxRetry.Value.ToString());
-            // [2026-09-11] Instruction from Mr. Wan: the 700 pre-reset is deprecated -- the fallback default was changed from true to false;
+            // [2026-09-11] The 700 pre-reset is deprecated -- the fallback default was changed from true to false;
             //   and the form always submits "false", so in practice "false" is always stored here. The fallback only guards against
             //   inputValues missing the key in extreme cases.
             AddItem(items, inputValues, ConfigHelper.KEY_TCP_RESET_ENABLED, GetBool(inputValues, ConfigHelper.KEY_TCP_RESET_ENABLED, false) ? "true" : "false");

@@ -4,7 +4,7 @@
     /// [2026-09-10] Print status enumeration for code data
     ///
     /// [Value convention] The numbers map one-to-one to the CodeData.PrintStatus column in the database; the int value is stored:
-    ///   0 = NotPrinted : the initial state after import; phase 2 printing takes this data in Id order
+    ///   0 = NotPrinted : the initial state after import; the printing flow takes this data in Id order
     ///   1 = Printed    : [2026-09-10 code-taking occupancy model] the moment a code is taken from the DB it is
     ///                    marked with this status (occupancy), and only afterwards written to the printer; a failed
     ///                    write is not rolled back either (better to miss a print than to print twice)

@@ -1,9 +1,9 @@
 ﻿namespace InkPrinterCode.Common
 {
     /// <summary>
-    /// [2026-09-10] Inkjet printer connection abstraction interface (added in round 2 of phase two)
+    /// [2026-09-10] Inkjet printer connection abstraction interface
     ///
-    /// [Design purpose (the structure confirmed by Mr. Wan)]
+    /// [Design purpose (the layering it enforces)]
     ///   TCP and serial each get their own implementation class (TcpPrinterConnection / SerialPrinterConnection),
     ///   while command assembly and reply parsing are kept separate in CodeNetProtocol —— the connection layer only
     ///   handles "bytes in and out" and knows nothing about the protocol, and the protocol layer only handles

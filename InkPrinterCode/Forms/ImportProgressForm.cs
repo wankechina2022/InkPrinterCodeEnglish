@@ -8,7 +8,7 @@ namespace InkPrinterCode.Forms
     /// <summary>
     /// [2026-09-10] Import progress form -- background import + progress bar + cancellable
     ///
-    /// [Why a separate form] A single import is around 100,000 rows; executing it synchronously on the UI thread
+    /// [Why a separate form] A single import is about 100,000 rows; executing it synchronously on the UI thread
     ///   would freeze the UI (spinning, unresponsive) and the user could neither cancel nor see progress.
     ///   A background thread plus a modal progress box keeps the main form responsive, shows progress in real
     ///   time and allows cancelling at any moment.

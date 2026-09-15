@@ -5,7 +5,7 @@ namespace InkPrinterCode.Common
     /// <summary>
     /// [2026-09-10] Text file reading helper -- dedicated to importing txt code data
     ///
-    /// [File format (confirmed by Mr. Wan)] One code per line, separated by CRLF, no header, no other fields.
+    /// [File format] One code per line, separated by CRLF, no header, no other fields.
     ///
     /// [Mechanism]
     ///   - Lines are read one at a time with StreamReader rather than File.ReadAllLines, because the latter keeps

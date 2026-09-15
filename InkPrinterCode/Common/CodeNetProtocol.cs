@@ -3,10 +3,10 @@
 namespace InkPrinterCode.Common
 {
     /// <summary>
-    /// [2026-09-10] CodeNet protocol framing and reply parsing (added in round 2 of phase two; a standalone file
-    /// specified by Mr. Wan)
+    /// [2026-09-10] CodeNet protocol framing and reply parsing (extracted into its own file;
+    /// kept separate from the connection and scheduling layers)
     ///
-    /// [Responsibility boundary (the structure confirmed by Mr. Wan)]
+    /// [Responsibility boundary (what this class does and does not do)]
     ///   This class does exactly two things: (1) assemble commands/code values into byte frames; (2) parse the
     ///   received byte stream into frames. It holds no connection, writes no database, and does no scheduling ——
     ///   the connection lives in TcpPrinterConnection / SerialPrinterConnection, and the scheduling state machine
@@ -20,7 +20,7 @@ namespace InkPrinterCode.Common
     ///   (per the PDF) —— this is byte-identical to the reference code for codes of >=10 digits (the main range on
     ///   site), while for short codes it avoids the misalignment risk of the reference code's "007".
     ///
-    /// [Byte characteristics of the three feedback streams (the basis for parse routing; Mr. Wan stressed that query
+    /// [Byte characteristics of the three feedback streams (the basis for parse routing; query
     /// commands must never be confused with print commands)]
     ///   ACK stream        : single byte 0x06 (success) / starting with 0x15 (rejected) —— only logged, never used for
     ///                       state determination (code-claim occupancy model)
@@ -201,7 +201,7 @@ namespace InkPrinterCode.Common
 
         /// <summary>
         /// Try to parse the head of the buffer as a "count frame": 1B 54 31 + 10 digits + 04
-        /// [Purpose] The reply to a printhead print-count query; in phase two it is only logged for reconciliation and
+        /// [Purpose] The reply to a printhead print-count query; currently it is only logged for reconciliation and
         /// is not used for any business determination.
         /// </summary>
         /// <param name="buffer">Receive buffer</param>

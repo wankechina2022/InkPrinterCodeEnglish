@@ -3,9 +3,9 @@
     /// <summary>
     /// [2026-09-10] Configuration helper class (v2 —— the version in which the config file was removed entirely)
     ///
-    /// [Background] v1 read parameters from App.config's appSettings. A previous project of Mr. Wan suffered an
+    /// [Background] v1 read parameters from App.config's appSettings. A previous project suffered an
     ///   incident in which "writing back to the config file corrupted its XML and the program could never start again",
-    ///   so on 2026-09-10 Mr. Wan decided: do not use a config file at all. Parameters are instead stored in the
+    ///   so on 2026-09-10 it was decided: do not use a config file at all. Parameters are instead stored in the
     ///   database's SystemConfig table (a SQLite transaction write is atomic, so there is no half-written state), and
     ///   App.config together with its NuGet package (System.Configuration.ConfigurationManager) was removed as well.
     ///
@@ -138,7 +138,7 @@
             defaults[KEY_RECONNECT_INTERVAL_MS] = "5000";
             defaults[KEY_INITIAL_CACHE_COUNT] = "3";
             defaults[KEY_MAX_RETRY_COUNT] = "3";
-            // [2026-09-11] Mr. Wan's instruction: the port-700 pre-reset feature is abandoned entirely —— so the default
+            // [2026-09-11] The port-700 pre-reset feature is abandoned entirely —— so the default
             //   is changed to false (unchecked). The UI checkbox has been hidden, saving always writes false, and
             //   "restore defaults" also returns false (this dictionary also feeds the restore-defaults button), so all
             //   four paths converge.
@@ -256,12 +256,12 @@
         }
 
         // ============================================================
-        // Inkjet communication-related (adjustable via the SystemConfig table; added in phase two)
+        // Inkjet communication-related (adjustable via the SystemConfig table; added with the printing feature)
         // ============================================================
 
         /// <summary>
         /// Heartbeat period in milliseconds, default 3000, allowed 500~600000
-        /// [2026-09-10] Mr. Wan ruled: the heartbeat has no on/off switch and must always be on —— in this project
+        /// [2026-09-10] The heartbeat has no on/off switch and must always be on —— in this project
         ///   the heartbeat (the query-status command) serves both as a liveness check and as the only means of
         ///   detecting a disconnection, so switching it off would make disconnections undetectable. The standard's
         ///   "heartbeat mechanism has a switch" item is deliberately omitted in this project, which is a documented
@@ -307,8 +307,8 @@
         /// <summary>
         /// Upper limit on retries for a failed single-code send, default 3, allowed 0~10.
         /// [2026-09-10] Disabled (the configuration item and table record are kept; do not delete): under the
-        ///   code-claim occupancy model, "a code is written only once and never retried" has been finalized (Mr. Wan's
-        ///   17:29 instruction), since a retry amounts to writing the same code into the inkjet printer a second time.
+        ///   code-claim occupancy model, "a code is written only once and never retried" has been finalized (decided on
+        ///   2026-09-10 at 17:29), since a retry amounts to writing the same code into the inkjet printer a second time.
         ///   This item currently participates in no business logic; it is retained only for reuse should the retry
         ///   mechanism ever be restored.
         /// </summary>
@@ -318,7 +318,7 @@
         }
 
         /// <summary>Whether to pre-reset port 700 before opening a TCP connection.
-        /// [2026-09-11] Mr. Wan's instruction: the feature is abandoned and the default is false (unchecked) —— the seed
+        /// [2026-09-11] The feature is abandoned and the default is false (unchecked) —— the seed
         /// default, the save submission and the restore-defaults path are all changed to false as well.</summary>
         public static bool TcpResetEnabled
         {

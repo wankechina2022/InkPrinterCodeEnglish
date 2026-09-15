@@ -335,7 +335,7 @@
         private Label lblImportTip;
         private Button btnPrintConfig;
 
-        // [2026-09-10] Phase 2 additions: system parameter config entry + test print button
+        // [2026-09-10] Later additions: system parameter config entry + test print button
         private Button btnSystemConfig;
         private Button btnTestPrint;
 

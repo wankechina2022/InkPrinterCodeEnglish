@@ -3,7 +3,7 @@
 namespace InkPrinterCode.Common
 {
     /// <summary>
-    /// [2026-09-10] Inkjet printer TCP connection implementation (added in round 2 of stage two)
+    /// [2026-09-10] Inkjet printer TCP connection implementation
     ///
     /// [CodeNet network conventions]
     ///   - The data port is fixed at 7000 (PDF section 2);
@@ -179,7 +179,7 @@ namespace InkPrinterCode.Common
         ///   network cable is unplugged, this machine's socket receives no event at all and Poll simply keeps returning
         ///   "no data"; a silent loss of contact can only be discovered by the heartbeat. Neither can replace the other.
         ///
-        /// [Why Poll must be outside the lock (2026-09-10, Mr. Wan's session, lock optimization wrap-up)]
+        /// [Why Poll must be outside the lock (2026-09-10, lock optimization work)]
         ///   Poll may block for the entire timeoutMs, and the connection lock is shared by Read / Write —— if the wait
         ///   were inside the lock, the reader would hold the lock for a long time and the writer (code sending /
         ///   heartbeat) would waste one Poll cycle waiting every single time.
@@ -262,10 +262,10 @@ namespace InkPrinterCode.Common
         /// <summary>
         /// Close the connection. Safe to call repeatedly; does not throw.
         ///
-        /// [2026-09-11] Close-method rework: graceful close + forced reset combined (Mr. Wan's session, to cure
+        /// [2026-09-11] Close-method rework: graceful close + forced reset combined (to cure
         /// "inkjet printer connection count exhausted")
         /// [Background] The original Close() implementation only sent a FIN (graceful close), and whether the peer
-        ///   released the connection was up to the inkjet printer's firmware —— on a real on-site machine, after
+        ///   released the connection was up to the inkjet printer's firmware —— on real hardware, after
         ///   repeated reconnects it reported "maximum number of connections reached", proving that this firmware does
         ///   not actively release on receiving a FIN (or, in the heartbeat-timeout scenario, that the FIN never arrived
         ///   at all), so old connections kept piling up on the machine side and occupied slots.
@@ -285,7 +285,7 @@ namespace InkPrinterCode.Common
         ///   Dispose releases the socket along with it, after which it can no longer be set. Each of the two steps has its
         ///   own try/catch: when the connection is already dead Shutdown throws SocketException, and when it has already
         ///   been released it throws ObjectDisposedException; neither may affect the subsequent release actions
-        ///   (following the DominoTcpClient.SafeClose structure provided by Mr. Wan).
+        ///   (following the SafeClose structure of DominoTcpClient).
         /// </summary>
         public void Close()
         {

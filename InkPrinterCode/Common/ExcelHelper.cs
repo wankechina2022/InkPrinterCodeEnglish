@@ -8,7 +8,7 @@ namespace InkPrinterCode.Common
     /// <summary>
     /// [2026-09-10] Excel read/write helper class (based on NPOI) —— reads the first column for import, exports query results
     ///
-    /// [Import format (confirmed by Mr. Wan)] Only the first column of the first Sheet is taken, with no header row;
+    /// [Import format] Only the first column of the first Sheet is taken, with no header row;
     /// all other columns are ignored.
     ///
     /// [Reading mechanism]
@@ -23,7 +23,7 @@ namespace InkPrinterCode.Common
     ///   This class's FormatNumericCell always outputs integers using long, avoiding scientific notation.
     ///   ⚠ But this only saves "formatting problems", not "precision problems": a double can only represent 15~16
     ///   digit integers exactly, so if a code exceeds 15 digits and is stored in Excel in the "Number" format, Excel
-    ///   itself has already discarded the trailing digits. Hence the on-site convention: the code-value column in
+    ///   itself has already discarded the trailing digits. Hence the convention: the code-value column in
     ///   Excel must be set to the "Text" format (CellType.String) to guarantee long codes are lossless.
     ///
     /// [Export mechanism] SXSSFWorkbook is used for streaming writes (only a 1000-row sliding window is kept in

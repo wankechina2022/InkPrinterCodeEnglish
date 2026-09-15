@@ -9,7 +9,7 @@ namespace InkPrinterCode.DAL
     /// <summary>
     /// [2026-09-10] Inkjet printer connection config data access class (PrinterConfig table, two-row TCP/serial design)
     ///
-    /// [Two-row mechanism (Mr. Wan's requirement: choose one of two and switch back and forth; switching must not lose config content, only change the enabled flag)]
+    /// [Two-row mechanism (choose one of two and switch back and forth; switching must not lose config content, only change the enabled flag)]
     ///   - The table always holds two rows: one with ConnType=0 (TCP) and one with ConnType=1 (serial), each storing its own parameters;
     ///   - The row with IsEnabled=1 is the currently enabled connection method, and at most one row is enabled;
     ///   - Saving = inside a single transaction: update each row's parameters separately (never overwriting each other) plus a mutually exclusive switch of the enabled flag.

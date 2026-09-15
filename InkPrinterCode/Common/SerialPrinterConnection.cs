@@ -3,10 +3,10 @@
 namespace InkPrinterCode.Common
 {
     /// <summary>
-    /// [2026-09-10] Inkjet printer serial-port connection implementation (added in round 2 of phase two)
+    /// [2026-09-10] Inkjet printer serial-port connection implementation
     ///
     /// [Serial parameter convention] 8 data bits / 1 stop bit / no parity (8N1) —— the PDF does not give a parity
-    ///   specification, so 8N1 is used per RS232 convention (Mr. Wan confirmed 8N1 as the default and that parity is
+    ///   specification, so 8N1 is used per RS232 convention (8N1 is the default and parity is
     ///   not being made a dropdown for now).
     ///
     /// [Thread model]

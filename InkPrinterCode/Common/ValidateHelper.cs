@@ -3,10 +3,10 @@
     /// <summary>
     /// [2026-09-10] Validation helper class —— centralizes the code-value cleaning and validity checks used in the import flow
     ///
-    /// [Code-value rules (confirmed by Mr. Wan on 2026-09-10)]
+    /// [Code-value rules (2026-09-10)]
     ///   1. Cleaning only does a Trim (removing leading and trailing whitespace, including leftover spaces, tabs and carriage returns);
     ///   2. Empty after Trim → a blank line; counted as invalid and skipped;
-    ///   3. Contains Chinese characters → ignored outright, counted as invalid and skipped (on-site code values never
+    ///   3. Contains Chinese characters → ignored outright, counted as invalid and skipped (code values here never
     ///      contain Chinese, so any occurrence is treated as dirty data);
     ///   4. No length limit and no character-set restriction —— anything other than the two cases above is allowed through.
     ///

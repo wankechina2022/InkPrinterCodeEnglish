@@ -7,13 +7,13 @@ namespace InkPrinterCode.BLL
     /// <summary>
     /// [2026-09-12] Inkjet printing service state machine (timed code sending v3 + code-claim occupancy model + stash resend)
     ///
-    /// [Iron rule against duplicates (instruction from Mr. Wan 2026-09-10 17:29, highest priority · code-claim occupancy model)]
+    /// [Iron rule against duplicates (2026-09-10 17:29, highest priority · code-claim occupancy model)]
     ///   The instant a code is taken out of the database it is immediately marked as "printed" (occupancy lock), and only afterwards
     ///   is it written to the inkjet printer — the re-claim condition is always PrintStatus=0, so the same code can never be taken
     ///   out a second time, and no exceptional path (write failure / database exception / lost response) can cause a duplicate print.
     ///   [No rollback on failure] A write failure still leaves the code as printed (better to miss a print than to print twice);
     ///   stopping does not roll back any code.
-    ///   [2026-09-12] stash resend is the single exception sanctioned by Mr. Wan: a code that was not confirmed as accepted
+    /// [2026-09-12] stash resend is the single exception to the iron rule: a code that was not confirmed as accepted
     ///   (0x15 / timeout / write failure) is resent as "the same code", not "claim a second code and write that" — the semantics
     ///   of the iron rule against duplicates are unchanged.
     ///
@@ -22,20 +22,20 @@ namespace InkPrinterCode.BLL
     ///   Receive thread  : the only entry point that reads the stream; routes by frame characteristics (guards against packet sticking),
     ///                     delivers ACKs / triggers print-done / resets the "consecutive ack timeout" counter (receiving any byte from
     ///                     the machine proves the peer is alive)
-    ///   Heartbeat thread: [disabled] the code is retained but no longer started (instruction from Mr. Wan 2026-09-12) —
+    /// Heartbeat thread: [disabled] the code is retained but no longer started (2026-09-12) —
     ///                     the 200ms timed code send is itself a "write + wait for response" liveness probe, far denser than a 3-second heartbeat
     ///   Send thread     : sends one record every 200ms (SEND_INTERVAL_MS): if stash is non-empty, resend the stash code;
-    ///                     otherwise claim a new code (instruction from Mr. Wan 2026-09-12, replacing the original "0x32-driven refill")
+    /// otherwise claim a new code (2026-09-12; supersedes the original "0x32-driven refill")
     ///   Reconnect thread: after a disconnect, reconnect at the configured interval; on success re-initialize the protocol environment
     ///                     and top up the cache (stash is preserved)
     ///   Stop thread     : the seven-step stop sequence (timers → threads → clear queues → close connection → release → restore UI),
     ///                     clearing stash
     ///   Test print thread: opens a separate connection → sets signals → clears the three queues → sends AB12345 → closes and releases immediately
-    ///                     (only available in the "Not Started" state; mutually exclusive with start/stop printing, instruction from Mr. Wan 19:53)
+    /// (only available in the "Not Started" state; mutually exclusive with start/stop printing; 19:53)
     ///
     /// [Two-level locking responsibilities]
     ///   _ioLock : business-layer transaction lock — wraps the single "send" operation (writing bytes); waiting for the response happens
-    ///             outside the lock, so heartbeat / code send / test do not block each other (instruction from Mr. Wan 13:42);
+    /// outside the lock, so heartbeat / code send / test do not block each other (13:42);
     ///   Connection-layer internal lock: only protects the stream object from concurrent access (see the IPrinterConnection interface comments).
     ///
     /// [Packet-sticking protection]
@@ -45,24 +45,24 @@ namespace InkPrinterCode.BLL
     ///   _ioLock guarantees that only one "write" is in flight at any moment, and the 200ms cadence is naturally serial, so response
     ///   ownership is unambiguous.
     ///
-    /// [Timed code sending (instruction from Mr. Wan 2026-09-12, final version v3, replacing the original "0x32-driven refill")]
+    /// [Timed code sending (2026-09-12, design v3; supersedes the original "0x32-driven refill")]
     ///   The send thread sends one record every SEND_INTERVAL_MS (200ms, static constant):
     ///   · stash (_stashCode) is non-empty → resend the code in stash (no re-claiming, no re-occupying, no double counting);
     ///   · stash is empty → claim a new code in Id order; claiming marks it printed immediately (occupancy model).
     ///   [Two-branch decision] The inkjet printer replies 0x06 = accepted → next round claims a new code;
     ///   anything else (0x15 reject / response timeout / write failure) → that code goes into stash and the same code is resent next round.
     ///   0x32 print-done is still received as usual, displayed as usual and counted into "printed count" as usual, but no longer drives code sending.
-    ///   [Send count semantics] Only a successful new-code claim increments it; stash resends are not counted (Mr. Wan: resends must not be double counted).
+    /// [Send count semantics] Only a successful new-code claim increments it; stash resends are not counted (resends must never be double counted).
     ///   [Re-print boundary] If the machine has already accepted but the 0x06 is lost/late, a resend will re-print the same code — under TCP's
-    ///   reliable transport the probability is extremely low, and a network drop + reconnect clears the queue as a backstop; Mr. Wan ruled that
+    /// reliable transport the probability is extremely low, and a network drop + reconnect clears the queue as a backstop;
     ///   "not burning codes (not wasting codes) takes priority" (2026-09-12).
     ///
-    /// [Disconnect detection (the replacement after the heartbeat was disabled, instruction from Mr. Wan 2026-09-12)]
+    /// [Disconnect detection (replaces the disabled heartbeat, 2026-09-12)]
     ///   After each code send we wait for the response; SEND_ACK_TIMEOUT_STREAK_MAX consecutive response timeouts (i.e. "we wrote it but got
     ///   no feedback at all") → judged offline → enter the reconnect flow; the receive thread resets the counter immediately upon receiving
     ///   any byte from the machine.
     ///
-    /// [Test print (instruction from Mr. Wan 19:53: fully independent)]
+    /// [Test print (fully independent; 19:53)]
     ///   Shares the same configuration as production, but opens a separate connection object: connect → set the print signal → clear the three
     ///   queues → send the fixed value AB12345 → close and release the connection. It does not write to the database and does not consume a
     ///   production code Id.
@@ -71,8 +71,8 @@ namespace InkPrinterCode.BLL
     ///   [Release iron rule] Regardless of success / reject / timeout / exception, finally must fully release via Close() + Dispose();
     ///   program exit (StopSync) also joins the test thread and closes that test connection.
     ///
-    /// [Logging strategy (instructions from Mr. Wan 19:47 / 19:53 / 2026-09-12)]
-    ///   To disk (LogHelper): all read/write exceptions, protocol exceptions, business and state-machine events — evidence for on-site
+    /// [Logging strategy (19:47 / 19:53 / 2026-09-12)]
+    ///   To disk (LogHelper): all read/write exceptions, protocol exceptions, business and state-machine events — evidence for
     ///     troubleshooting; 0x15 rejects are completely silent in the UI, and the on-disk log is rate-limited to a 30-second summary
     ///     ("cache full ongoing, N rejects so far") to avoid flooding the disk.
     ///   UI only (LogDevice): the device interaction process — 0x06 responses / 0x32 print-done / code sends / successful commands /
@@ -102,7 +102,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// ACK wait transaction (after a code send / command write, the receive thread delivers the result).
-        /// [2026-09-10] Changed to a three-state form after lock optimization plan 1 (approved by Mr. Wan 22:33):
+        /// [2026-09-10] Changed to a three-state form after the lock-hold rework (22:33):
         ///   Received=false → the response has not arrived yet (a wait timeout returns null based on this, distinguishing it from "0x15 received");
         ///   Received=true  → received; only then does Acked carry meaning (true = 0x06 / false = 0x15).
         /// [Why three states are necessary] Originally there was only a single bool Acked, so "timed out with nothing received" and "received 0x15"
@@ -137,7 +137,7 @@ namespace InkPrinterCode.BLL
         }
 
         /// <summary>
-        /// [2026-09-12] * Timed code-send cadence (milliseconds) * — Mr. Wan asked for this to be a static variable so that future code
+        /// [2026-09-12] * Timed code-send cadence (milliseconds) * — kept as a static variable so future code
         /// changes only need to look in one place.
         /// The send thread sends one code every SEND_INTERVAL_MS: if stash is non-empty it resends the stash code, otherwise it claims a new code.
         /// [Value rationale] 200ms = at most 5 records per second, which is natural rate limiting (when the machine cache is full, extra sends only
@@ -172,7 +172,7 @@ namespace InkPrinterCode.BLL
         ///   been moved outside the lock, so the reader only holds the lock for "fetch the reference + actually read data", which is microsecond-level.
         ///
         /// [History] 200 → 50 → 15: early on, Poll was inside the connection lock, so the reader's lock hold time equaled the writer's worst-case wait; therefore
-        ///   on 2026-09-10 this value was tightened from 50 to 15 to compress the writer's wait. On the same day at 18:35, Mr. Wan moved Poll out of the lock,
+        /// on 2026-09-10 this value was tightened from 50 to 15 to compress the writer's wait. On the same day at 18:35, Poll was moved out of the lock,
         ///   after which the writer's wait dropped to zero and this value became completely decoupled from lock contention; 15 is retained only to make
         ///   cancellation more responsive.
         ///
@@ -192,7 +192,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Business-layer transaction lock: wraps the single "send" operation (writing bytes).
-        /// [2026-09-10] After plan 1 it **no longer wraps "wait for response"** — the wait has been moved outside the lock (see WaitPendingAck), so the lock
+        /// [2026-09-10] After the lock rework it **no longer wraps "wait for response"** — the wait has been moved outside the lock (see WaitPendingAck), so the lock
         ///   hold time is only the microsecond-level byte write, and readers/writers no longer block each other.
         /// </summary>
         private readonly object _ioLock = new object();
@@ -210,13 +210,13 @@ namespace InkPrinterCode.BLL
         /// <summary>
         /// [2026-09-12] Code pending resend (stash): the code that was sent last time but not confirmed as accepted by the inkjet printer
         /// (0x15 / timeout / write failure).
-        /// [Semantics (Mr. Wan 2026-09-12, timed code sending v3)] Code sending runs a round every 200ms: if stash is non-empty → resend this code in stash
+        /// [Semantics (2026-09-12, timed code sending v3)] Code sending fires once every 200ms: if stash is non-empty → resend this code in stash
         ///   (no re-claiming, no re-occupying, send count not incremented); if stash is empty → claim a new code.
         ///   Two-branch decision: the machine replies 0x06 = accepted → stash is cleared and a new code is claimed next round;
         ///   0x15 / response timeout / write failure → the code stays in stash (or the new code is placed there) and the same code is resent next round.
         /// [Whole CodeData is stored] The resend log needs the Id for easy reconciliation with the database (the old quota mechanism _pendingSend was removed entirely).
         /// [Lifecycle] Cleared on startup; preserved across reconnects (after a reconnect the stash code queues behind the 3 prefilled records waiting for a slot;
-        ///   being a few beats later loses nothing); cleared on stop (Mr. Wan ruled that burning 1 code on shutdown is acceptable).
+        /// being a few beats later loses nothing); cleared on stop (burning 1 code on shutdown is acceptable).
         /// [Access] Only the send thread and the prefill reads/writes of the startup/reconnect thread (during prefill the send thread is blocked by a latch, so
         ///   there is at most one writer at a time); reference assignment itself is atomic, so no lock is needed.
         /// </summary>
@@ -232,7 +232,7 @@ namespace InkPrinterCode.BLL
         /// </summary>
         private int _ackTimeoutStreak = 0;
 
-        /// <summary>Threshold of consecutive response timeouts for judging the link offline (instruction from Mr. Wan 2026-09-12: no feedback after 3 consecutive writes means the network is down)</summary>
+        /// <summary>Threshold of consecutive response timeouts for judging the link offline (2026-09-12: no feedback after 3 consecutive writes means the network is down)</summary>
         private const int SEND_ACK_TIMEOUT_STREAK_MAX = 3;
 
         /// <summary>Prefill count (how many records are sent once at startup/reconnect; no longer used as a send gate during operation)</summary>
@@ -250,14 +250,14 @@ namespace InkPrinterCode.BLL
         /// <summary>
         /// [2026-09-10] The moment of the last successful "read data" (Environment.TickCount64, monotonically increasing, unaffected by system clock changes).
         ///
-        /// [Trust reads only, not writes (ruled by Mr. Wan 19:53)] With a TCP half-open link / cable unplugged, Write still returns success (the data only made
+        /// [Trust reads only, not writes (19:53)] With a TCP half-open link / cable unplugged, Write still returns success (the data only made
         ///   it into the local kernel send buffer, and nothing proves the peer received it). If a successful write were also counted, then when "the device is
         ///   dead but the socket is still hanging" this value would keep being refreshed → the heartbeat would never run → a disconnect would never be detected.
         ///   Only actually reading bytes proves the peer is still alive.
         ///
         /// [Purpose] The heartbeat thread uses this to skip liveness probing: if idle &lt; heartbeat interval → there was just data interaction, so no query frame
         ///   is needed this round. During continuous production every code definitely gets a 0x06 + 0x32 reply, so reads keep producing data → the heartbeat
-        ///   essentially never runs (the design goal of Mr. Wan).
+        /// essentially never runs (by design).
         ///
         /// [Access] Writes go through Interlocked.Exchange and reads through Interlocked.CompareExchange(...,0,0), so it is visible across threads.
         /// </summary>
@@ -268,9 +268,9 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// [2026-09-10] "Send count" for this run — incremented on every trip through Write, regardless of whether the write succeeded and ignoring any feedback.
-        /// [Semantics (instruction from Mr. Wan 20:23)] Bounded by "the dispatch action of this run": merely entering the write branch counts, and a failed write
+        /// [Semantics (20:23)] Bounded by "the dispatch action of this run": merely entering the write branch counts, and a failed write
         ///   or a 0x15 reject counts just the same; it is used to compare against the "printed count" to reveal the in-flight quantity of "sent but not yet printed"
-        ///   (Mr. Wan explicitly said: a discrepancy is not a problem).
+        /// (a discrepancy is not a problem).
         /// [Reset] Reset to zero on every Start(); a reconnect does not reset it (it is still the same run).
         /// [Access] Incremented with Interlocked on background threads, read atomically by the UI thread via the RunSendCount property (CompareExchange).
         /// </summary>
@@ -278,14 +278,14 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// [2026-09-10] "Printed count" for this run — only the 0x32 (print done) sent back by the inkjet printer counts; nothing else does.
-        /// [Semantics (instruction from Mr. Wan 20:23)] Failed writes / 0x15 rejects / prefilled records not yet printed by the machine are all excluded.
+        /// [Semantics (20:23)] Failed writes / 0x15 rejects / prefilled records not yet printed by the machine are all excluded.
         /// [Reset] Reset to zero on every Start(); a reconnect does not reset it (it is still the same run).
         /// [Access] Incremented with Interlocked by the receive thread, read atomically by the UI thread via the RunPrintedCount property (CompareExchange).
         /// </summary>
         private int _runPrintedCount = 0;
 
         /// <summary>
-        /// [2026-09-11] "Available code base" (decoupling the dashboard from database queries, D1, instruction from Mr. Wan).
+        /// [2026-09-11] "Available code base" (decoupling the dashboard from database queries, D1).
         /// [Mechanism] On every startup, before PrefillCache, query the total not-printed count once and lock it in as the base; during operation the dashboard's
         ///   available count = base − send count (RunSendCount), with no further database queries.
         ///   Rationale: in SendOneCode a successful MarkPrinted is always accompanied by send count +1, and on failure neither side moves, so the decrease in
@@ -397,7 +397,7 @@ namespace InkPrinterCode.BLL
         }
 
         /// <summary>
-        /// Start printing (Mr. Wan's rule: btnStart / btnStop enable are mutually exclusive, guaranteed by the UI event wiring)
+        /// Start printing (btnStart / btnStop are mutually exclusive, guaranteed by the UI event wiring)
         /// [Mechanism] Only spins up the startup thread and does not block the UI — on connect/prefill failure it goes back to "Not Started" and pops a log explanation.
         /// </summary>
         public void Start()
@@ -411,7 +411,7 @@ namespace InkPrinterCode.BLL
                 _state = ServiceState.Starting;
             }
 
-            // [2026-09-10] Instruction from Mr. Wan 20:23: the dashboard's two counters start from 0 on every start
+            // [2026-09-10] The dashboard's two counters start from 0 on every start
             //   ("send count" and "printed count"; a reconnect does not reset them, as it is still the same run)
             // [2026-09-11] The available code base is also set to −1 (unknown): the base is re-locked by the startup thread in StartSequence
             //   before prefilling, sharing the same starting point as the send count, so that "base − send count" is consistent.
@@ -476,10 +476,10 @@ namespace InkPrinterCode.BLL
         }
 
         /// <summary>
-        /// Test print (instruction from Mr. Wan 19:53: fully independent, only available in the "Not Started" state).
+        /// Test print (fully independent, only available in the "Not Started" state; 19:53).
         /// [Mutual exclusion] Start printing can only be initiated from the not-started state, and stop printing only from the running/starting state, while this
         ///   method only lets the call through in the "Not Started" state → test vs. start and test vs. stop are naturally mutually exclusive (the UI layer also
-        ///   disables the button, as double insurance).
+        /// disables the button, as a safety net).
         /// [Flow] Only sets the state and spins up the test thread; the actual connect / send / release all happen inside TestPrintSequence.
         /// </summary>
         public void TestPrint()
@@ -563,7 +563,7 @@ namespace InkPrinterCode.BLL
                 ExecInstruction(CodeNetProtocol.BuildClearQueueFrame(1), "Clear RS232 cache queue");
                 ExecInstruction(CodeNetProtocol.BuildClearQueueFrame(2), "Clear history cache queue");
 
-                // ---------- 4.5 Lock in the "available code base" (decoupling the dashboard from database queries, D1, instruction from Mr. Wan 2026-09-11) ----------
+                // ---------- 4.5 Lock in the "available code base" (decoupling the dashboard from database queries, D1; 2026-09-11) ----------
                 // [Mechanism] At startup, query the total not-printed count once as the base; afterwards the running dashboard's available count = base − send count,
                 //   and not a single database query is made during operation (with tens of millions of rows the UI is no longer slowed down by COUNT).
                 // [Placement] Must be between this step (4.5) and step 5 PrefillCache() — prefilling claims codes, which moves "not printed −3, send count +3"
@@ -609,7 +609,7 @@ namespace InkPrinterCode.BLL
                 LogError("[Print service] Startup failed: " + ex.Message);
                 LogHelper.Instance.Error("Inkjet printing service startup failed", ex);
 
-                // Reclaim resources and return to "Not Started" so Mr. Wan can adjust the configuration and start again
+                // Reclaim resources and return to "Not Started" so the configuration can be adjusted and a fresh start made
                 StopSteps("Startup failure rollback");
             }
         }
@@ -641,8 +641,8 @@ namespace InkPrinterCode.BLL
         }
 
         /// <summary>
-        /// Spin up the resident threads (receive / send), all IsBackground=true (a hard requirement from Mr. Wan).
-        /// [2026-09-12] The heartbeat thread is disabled (instruction from Mr. Wan: keep the code, do not start it) — code sending runs a round every 200ms,
+        /// Spin up the resident threads (receive / send), all IsBackground=true (hard requirement).
+        /// [2026-09-12] The heartbeat thread is disabled (keep the code, do not start it) — code sending fires once every 200ms,
         ///   and each round is itself a "write + wait for response" liveness probe; SEND_ACK_TIMEOUT_STREAK_MAX consecutive response timeouts judge the link
         ///   offline (see SendLoop), and the probing density (0.2-second level) is far higher than the original heartbeat (3-second interval).
         ///   The stop sequence's JoinThread(_heartbeatThread) is retained: it safely skips when the reference is null.
@@ -654,7 +654,7 @@ namespace InkPrinterCode.BLL
             _receiveThread.Name = "PrintService-Receive";
             _receiveThread.Start();
 
-            // [2026-09-12] Instruction from Mr. Wan: the heartbeat thread is disabled (code retained, not started). Original startup code:
+            // [2026-09-12] The heartbeat thread is disabled (code retained, not started). Original startup code:
             // _heartbeatThread = new Thread(HeartbeatLoop);
             // _heartbeatThread.IsBackground = true;
             // _heartbeatThread.Name = "PrintService-Heartbeat";
@@ -714,7 +714,7 @@ namespace InkPrinterCode.BLL
         }
 
         // ============================================================
-        // 0x15 reject log rate limiting (instruction from Mr. Wan 2026-09-12: silent in the UI + a 30-second summary on disk)
+        // 0x15 reject log rate limiting (2026-09-12: silent in the UI + a 30-second summary on disk)
         // ============================================================
 
         /// <summary>Interval of the 0x15 on-disk summary (milliseconds): at most one summary is written per 30-second window</summary>
@@ -728,7 +728,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// A 0x15 reject arrived (called by the receive thread): completely silent in the UI, and the on-disk log is rate-limited to a 30-second summary.
-        /// [Background (instruction from Mr. Wan 2026-09-12)] When the cache is full the machine replies 0x15 to every extra send, and logging each one
+        /// [Background (2026-09-12)] When the cache is full the machine replies 0x15 to every extra send, and logging each one
         ///   would flood both the screen and the disk; so it accumulates a count and writes one summary to disk every 30 seconds (including the cumulative count).
         /// [Where the rejected codes go] Into _stashCode; the send thread resends every 200ms and they are automatically topped up into the cache once a slot
         ///   frees up — no code loss.
@@ -767,17 +767,17 @@ namespace InkPrinterCode.BLL
         /// Send one production code: for a new code, claim it first (mark printed) → single write → wait for the response → wrap up according to the
         /// 0x06/other two-branch decision.
         ///
-        /// [Occupancy model (instruction from Mr. Wan 2026-09-10 17:29)] The first step for a new code is to mark it printed; only afterwards is it
+        /// [Occupancy model (2026-09-10 17:29)] The first step for a new code is to mark it printed; only afterwards is it
         ///   written to the inkjet printer. The claim condition is always PrintStatus=0, so once this record is marked successfully no path can ever
         ///   claim it again — eradicating "duplicate claim" style duplicate printing at the root.
-        /// [2026-09-12] [stash resend (Mr. Wan 2026-09-12, timed code sending v3)] isResend=true means this record is the code in stash that was "not
+        /// [2026-09-12] [stash resend (2026-09-12, timed code sending v3)] isResend=true means this record is the code in stash that was "not
         ///   confirmed as accepted": it is not re-occupied (it was already marked printed long ago) and the send count is not incremented (resends are
         ///   not double counted); only "write + wait for response" is performed. Setting/clearing stash is wrapped up uniformly inside this method, so
         ///   callers need not worry about it:
         ///   · 0x06 confirms acceptance → stash is cleared (when isResend) → returns Acked, and a new code is claimed next round;
         ///   · 0x15 / response timeout / write failure → the new code is placed into stash (left untouched when isResend) → the same code is resent next
-        ///     round (without wasting codes, as ruled by Mr. Wan).
-        /// [Send count semantics (revised by Mr. Wan 2026-09-12)] Only a successful new-code claim increments it (a claim ≡ a decrease in not-printed
+        /// round (without wasting codes).
+        /// [Send count semantics (revised 2026-09-12)] Only a successful new-code claim increments it (a claim ≡ a decrease in not-printed
         ///   stock, preserving the dashboard's "base − send count" identity); stash resends are not counted.
         /// [Logging] 0x06 goes to the UI only (LogDevice); 0x15 is silent in the UI (the rate-limited summary lives in the receive thread's OnNakReceived);
         ///   write failures go to disk (LogError).
@@ -815,7 +815,7 @@ namespace InkPrinterCode.BLL
                     return SendResult.ClaimFailed;
                 }
 
-                // [2026-09-12] Send count +1: only a successful new-code claim counts (stash resends are not counted — instruction from Mr. Wan).
+                // [2026-09-12] Send count +1: only a successful new-code claim counts (stash resends are not counted).
                 //   Aligned with the identity "not-printed stock decrease ≡ send count" (the dashboard's "base − send count" semantics).
                 System.Threading.Interlocked.Increment(ref _runSendCount);
             }
@@ -827,7 +827,7 @@ namespace InkPrinterCode.BLL
             {
                 bool? ackResult;
 
-                // [2026-09-10] Lock optimization plan 1 (approved by Mr. Wan 22:33):
+                // [2026-09-10] After the lock-hold rework (22:33):
                 //   the order is "hang the pending inbox first → write inside the lock → wait outside the lock → remove the inbox in finally",
                 //   so the response can wake the waiter as soon as it arrives, and waiting does not hold _ioLock.
                 PendingAck pending = BeginPendingAck();
@@ -856,8 +856,8 @@ namespace InkPrinterCode.BLL
                         _stashCode = null;
                     }
 
-                    // [2026-09-10] Instruction from Mr. Wan 19:53: code send information goes to the UI only (not to disk) —
-                    //   the operator can see the "send one → accepted" cadence in the UI (0x06 display: instruction from Mr. Wan 2026-09-12)
+                    // [2026-09-10] Code send information goes to the UI only (not to disk) —
+                    // the operator can see the "send one → accepted" cadence in the UI (0x06 display; 2026-09-12)
                     LogDevice("[Send] " + code.CodeValue + " (Id=" + code.Id.ToString()
                               + (isResend ? ") stash resend was accepted by the inkjet printer (0x06)"
                                           : ") was accepted by the inkjet printer (0x06), status → printed"));
@@ -872,7 +872,7 @@ namespace InkPrinterCode.BLL
 
                 if (ackResult == false)
                 {
-                    // 0x15 = reject (usually the internal cache is full): completely silent in the UI (instruction from Mr. Wan 2026-09-12);
+                    // 0x15 = reject (usually the internal cache is full): completely silent in the UI (2026-09-12);
                     //   the on-disk summary is rate-limited to 30 seconds by the receive thread's OnNakReceived, so no duplicate log line here
                     return SendResult.Nacked;
                 }
@@ -883,7 +883,7 @@ namespace InkPrinterCode.BLL
             catch (Exception ex)
             {
                 // Write failure (connection problem): the code stays printed and is not rolled back (iron rule of plan A), but is moved to stash for a resend next round
-                // (instruction from Mr. Wan 2026-09-12: on a write failure the same code is resent too, without wasting codes);
+                // (2026-09-12: on a write failure the same code is resent too, without wasting codes);
                 // the reconnect is triggered by SendLoop, and after the reconnect stash is preserved and automatically resent after the prefill
                 if (!isResend)
                 {
@@ -902,7 +902,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Hang the "pending inbox" (**must be called before Write**).
-        /// [2026-09-10] Lock optimization plan 1 (approved by Mr. Wan 22:33): the order must be
+        /// [2026-09-10] After the lock-hold rework (22:33): the order must be
         ///   "hang the inbox → then write → wait outside the lock → remove it in finally".
         /// [Why hanging the inbox first is mandatory] If we wrote first and hung the inbox afterwards, a response could arrive in between — at that moment
         ///   _pendingAck would still be null, so the receive thread (DeliverAck) would find no recipient and the response would be dropped; this transaction
@@ -942,7 +942,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Wait for the receive thread to deliver the ACK **outside of _ioLock**.
-        /// [2026-09-10] Lock optimization plan 1 (approved by Mr. Wan 22:33):
+        /// [2026-09-10] After the lock-hold rework (22:33):
         ///   The original implementation (WaitAckInsideIoLock) put the wait inside lock(_ioLock), but after reading the response bytes the receive
         ///   thread must first acquire that same _ioLock in order to deliver — the waiter holds the lock while the deliverer asks for it, so the
         ///   response could never get in and the full timeout was always waited out. Consequences: every production code send wasted 100ms; the 4
@@ -991,7 +991,7 @@ namespace InkPrinterCode.BLL
             {
                 bool? ackResult;
 
-                // [2026-09-10] Lock optimization plan 1 (approved by Mr. Wan 22:33): hang the inbox → write inside the lock → wait outside the lock → remove it in finally.
+                // [2026-09-10] After the lock-hold rework (22:33): hang the inbox → write inside the lock → wait outside the lock → remove it in finally.
                 //   The wait used to be inside lock(_ioLock), and reading the response on the receive thread required the same lock → each instruction wasted the
                 //   full SendResponseTimeoutMs (3000ms by default), totaling about 12 seconds for the 4 startup instructions.
                 PendingAck pending = BeginPendingAck();
@@ -1035,7 +1035,7 @@ namespace InkPrinterCode.BLL
         /// [Difference from ExecInstruction] The latter relies on the resident receive thread to deliver the ACK and writes the _connection field;
         ///   the test print does not start the resident threads, so it must read/write this temporary connection itself, hence a separate implementation.
         /// [Implementation] After writing, poll and read directly at RECEIVE_POLL_TIMEOUT_MS until 0x06 / 0x15 is recognized or the accumulated time exceeds the timeout.
-        /// [Logging] Sends and responses go to the UI only (LogDevice, instruction from Mr. Wan 19:53), making the interaction cycle easy for the operator to follow.
+        /// [Logging] Sends and responses go to the UI only (LogDevice; 19:53), making the interaction cycle easy for the operator to follow.
         /// </summary>
         /// <returns>true = 0x06; false = 0x15; null = timeout with no response</returns>
         private bool? WaitAckDirect(IPrinterConnection conn, byte[] frame, string title)
@@ -1156,7 +1156,7 @@ namespace InkPrinterCode.BLL
                     continue;
                 }
 
-                // [2026-09-10] Instruction from Mr. Wan 19:53: reading data refreshes the "last interaction time" (the heartbeat uses it to skip liveness probing).
+                // [2026-09-10] Reading data refreshes the "last interaction time" (the heartbeat uses it to skip liveness probing).
                 //   Only a successful read counts, not a successful write — see the _lastIoMs field description.
                 MarkIoActivity();
 
@@ -1177,10 +1177,10 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Parse the receive buffer (must be called while holding _rxLock).
-        /// [Routing rules (Mr. Wan stressed: query commands must never be confused with print commands)]
+        /// [Routing rules: query commands must never be confused with print commands]
         ///   0x06 / 0x15    → ACK stream (delivered to the waiting transaction + logged)
         ///   0x32           → print-done event stream (cache count -1 + wake the send thread)
-        ///   0x30           → a byte of unknown origin (Mr. Wan 2026-09-12: not a print-done signal; silently ignored for now, not shown in the UI, not written to disk)
+        /// 0x30           → a byte of unknown origin (2026-09-12: not a print-done signal; silently ignored for now, not shown in the UI, not written to disk)
         ///   1B 31 43…04    → status frame (heartbeat response)
         ///   1B 54 31…04    → counter frame (backup reconciliation, log only)
         ///   anything else  → written to the log verbatim in hexadecimal; never participates in business decisions
@@ -1203,7 +1203,7 @@ namespace InkPrinterCode.BLL
                 {
                     _rxBuffer.RemoveAt(0);
                     DeliverAck(false);
-                    // [2026-09-12] Instruction from Mr. Wan: 0x15 is completely silent in the UI, and the on-disk log is rate-limited to a 30-second summary (see OnNakReceived)
+                    // [2026-09-12] 0x15 is completely silent in the UI, and the on-disk log is rate-limited to a 30-second summary (see OnNakReceived)
                     OnNakReceived();
                     continue;
                 }
@@ -1215,8 +1215,8 @@ namespace InkPrinterCode.BLL
                     continue;
                 }
 
-                // [2026-09-12] Instruction from Mr. Wan: 0x30 is silently ignored on arrival (not shown in the UI, not written to disk).
-                // [What 0x30 is — no conclusion yet] Mr. Wan stated on 2026-09-12 that 0x30 is not a print-done signal; its origin is
+                // [2026-09-12] 0x30 is silently ignored on arrival (not shown in the UI, not written to disk).
+                // [What 0x30 is — still undetermined] 0x30 is not a print-done signal (2026-09-12); its origin is
                 //   unknown, so it is first silently discarded as an unknown byte. Only the questionable clues are noted here, with no conclusion drawn:
                 //   SET_ACK (field B of the print signal setup frame 1B 49 31 32 04) can set a "print confirmation character"
                 //   (legal values 1-4 / A-Z); this program sets '2' (0x32), and the simulator appears to reply '0' (0x30),
@@ -1326,7 +1326,7 @@ namespace InkPrinterCode.BLL
             {
                 if (_pendingAck != null)
                 {
-                    // [2026-09-10] Plan 1: set "received" first, then the result value — the waiter uses Received as its sole criterion, and because
+                    // [2026-09-10] Lock rework: set "received" first, then the result value — the waiter uses Received as its sole criterion, and because
                     //   both assignments happen inside the same _ackLock, it is guaranteed that when it sees Received=true, Acked is already the final value.
                     _pendingAck.Received = true;
                     _pendingAck.Acked = acked;
@@ -1334,8 +1334,8 @@ namespace InkPrinterCode.BLL
                 Monitor.PulseAll(_ackLock);
             }
 
-            // The response itself also writes a run log line for easy on-site reconciliation (a waiting transaction writes its own result separately)
-            // [2026-09-10] Instruction from Mr. Wan 19:53: UI only, not written to disk (it is "feedback for a code sent to the inkjet printer")
+            // The response itself also writes a run log line for easy reconciliation (a waiting transaction writes its own result separately)
+            // [2026-09-10] UI only, not written to disk (it is "feedback for a code sent to the inkjet printer")
             if (acked)
             {
                 LogDevice("[Response] 0x06 receive confirmation");
@@ -1344,8 +1344,8 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Print-done event (0x32): dashboard "printed count" +1.
-        /// [2026-09-10] Instruction from Mr. Wan 20:23: the only accumulation point for the dashboard's "printed count" is here — only 0x32 counts.
-        /// [2026-09-12] Instruction from Mr. Wan: 0x32 is still received, displayed and counted as usual, but **no longer drives code sending**
+        /// [2026-09-10] The only accumulation point for the dashboard's "printed count" is here — only 0x32 counts.
+        /// [2026-09-12] 0x32 is still received, displayed and counted as usual, but **no longer drives code sending**
         ///   (code sending has become a 200ms timed send, see SendLoop; the old quota AddPendingSend has been removed).
         /// </summary>
         private void OnPrintDone()
@@ -1387,7 +1387,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Heartbeat loop: periodically sends the "query machine status" command and waits for the status frame; a timeout judges the link offline and triggers a reconnect.
-        /// [Online determination] A status frame received = online; no status frame within HeartbeatTimeoutMs = disconnected (the design goal of Mr. Wan).
+        /// [Online determination] A status frame received = online; no status frame within HeartbeatTimeoutMs = disconnected (by design).
         /// [Configuration takes effect immediately] The interval/timeout are re-read from ConfigHelper every round, so saving on the system parameters page takes effect next round.
         /// </summary>
         private void HeartbeatLoop()
@@ -1405,7 +1405,7 @@ namespace InkPrinterCode.BLL
                     Thread.Sleep(50);
                     slept += 50;
 
-                    // [2026-09-10] Instruction from Mr. Wan 20:15: watch idleness while sleeping — as soon as a full heartbeat interval has passed
+                    // [2026-09-10] Watch idleness while sleeping — as soon as a full heartbeat interval has passed
                     //   since "the last successful read", end this round of sleep immediately to probe for liveness, rather than going back to sleep a whole round.
                     //   Reason: the previous "sleep the whole round before judging idleness" had a phase penalty — if the last data record happened to be read
                     //         at the very end of the sleep window (idle just reset to zero), the on-time judgement would necessarily be "less than the interval"
@@ -1429,11 +1429,11 @@ namespace InkPrinterCode.BLL
                     continue;   // During a disconnect the reconnect thread is in charge; the heartbeat does nothing
                 }
 
-                // [2026-09-10] Instruction from Mr. Wan 19:53: skip when idle — when data was successfully read recently (meaning the connection is
+                // [2026-09-10] Skip when idle — when data was successfully read recently (meaning the connection is
                 //   certainly alive and there was just an interaction) no query frame is sent this round; only "at least a heartbeat interval since the last
                 //   successful read" triggers real probing.
-                //   During continuous production reads always produce data → the heartbeat essentially never runs → fewer read/write lock conflicts (the design
-                //   goal of Mr. Wan).
+                // During continuous production reads always produce data → the heartbeat essentially never runs → fewer read/write lock conflicts (by design).
+                // 
                 //   Half-dead device scenario (TCP hanging but not responding): no data can be read → _lastIoMs stops updating → after the idle timeout the
                 //   heartbeat steps in → no status frame received → judged disconnected (this is exactly the key value of "trust reads, not writes").
                 long lastIo = System.Threading.Interlocked.CompareExchange(ref _lastIoMs, 0, 0);
@@ -1449,7 +1449,7 @@ namespace InkPrinterCode.BLL
                     // Reset the signal → write the query frame → wait for the status frame
                     _statusFrameEvent.Reset();
 
-                    // [2026-09-10] Instruction from Mr. Wan 19:53: the normal heartbeat state is also shown in the UI (so you can see the system is running)
+                    // [2026-09-10] The normal heartbeat state is also shown in the UI (so you can see the system is running)
                     LogDevice("[Heartbeat] Sending the query status command (idle liveness probe).");
 
                     lock (_ioLock)
@@ -1498,13 +1498,13 @@ namespace InkPrinterCode.BLL
         /// (claiming occupies it). Two-branch response decision:
         ///   0x06 = the machine confirms acceptance → claim a new code next round (stash is cleared inside SendOneCode);
         ///   0x15 / response timeout / write failure → the code goes into stash (done inside SendOneCode), and the same code is resent next round.
-        /// [2026-09-12] Instruction from Mr. Wan: the timing of code sending is completely decoupled from 0x32 — 0x32 is used only for UI display and the
+        /// [2026-09-12] The timing of code sending is completely decoupled from 0x32 — 0x32 is used only for UI display and the
         /// "printed count".
         /// [Disconnect detection (the heartbeat is disabled)] SEND_ACK_TIMEOUT_STREAK_MAX consecutive response timeouts (3 by default)
         ///   → judged disconnected → TriggerReconnect; the receive thread resets the counter upon receiving any byte from the machine (see ReceiveLoop).
         ///   With the default parameters (timeout 2000ms + cadence 200ms) a disconnect is detected in about 3 × 2.2 ≈ 6.6 seconds in the worst case.
         /// [Write failure] The code has gone into stash and a reconnect is triggered immediately (a connection-layer problem); after a successful reconnect
-        ///   stash is preserved and queues behind the 3 prefilled records, waiting for a slot to be resent automatically (confirmed by Mr. Wan: a few beats
+        /// stash is preserved and queues behind the 3 prefilled records, waiting for a slot to be resent automatically (a few beats
         ///   later loses nothing).
         /// [No-code behavior] When stash is empty and the database has no not-printed codes: skip this round and wait for an import, reporting it only once
         ///   to avoid flooding the screen.
@@ -1518,7 +1518,7 @@ namespace InkPrinterCode.BLL
 
             while (!token.IsCancellationRequested)
             {
-                // [2026-09-12] Timed cadence: one round every SEND_INTERVAL_MS (Mr. Wan asked for this to be a static variable, see the constant definition)
+                // [2026-09-12] Timed cadence: one send per SEND_INTERVAL_MS (kept as a static variable, see the constant definition)
                 Thread.Sleep(SEND_INTERVAL_MS);
 
                 if (token.IsCancellationRequested || !IsRunning || !_printerOnline)
@@ -1688,8 +1688,8 @@ namespace InkPrinterCode.BLL
 
                         // 3. Reset the consecutive timeout counter + discard the old receive buffer
                         // [2026-09-12] Timed code sending v3: the old quota ResetPendingSend has been removed;
-                        //   per the instruction from Mr. Wan, stash is **preserved** — after reconnecting the stash code queues behind the 3 prefilled records
-                        //   waiting for a slot, and the send thread resends it every 200ms, so it is a few beats later but never lost (confirmed by Mr. Wan).
+                        // stash is **preserved** — after reconnecting the stash code queues behind the 3 prefilled records
+                        // waiting for a slot, and the send thread resends it every 200ms, so it is a few beats later but never lost.
                         System.Threading.Interlocked.Exchange(ref _ackTimeoutStreak, 0);
                         lock (_rxLock)
                         {
@@ -1721,7 +1721,7 @@ namespace InkPrinterCode.BLL
                         }
 
                         // 5. Back online
-                        // [2026-09-10] Defensive (reply from Mr. Wan 15:11): during the prefill the user may have already clicked "Stop Printing"
+                        // [2026-09-10] Defensive (15:11): during the prefill the user may have already clicked "Stop Printing"
                         //   — after the stop sequence's Join on the reconnect thread times out it completes the seven steps first (the connection is cleaned
                         //   up by this thread as a backstop), so at this point the state/UI must never be pulled back to "Running"; close the freshly created
                         //   connection and exit directly.
@@ -1762,7 +1762,7 @@ namespace InkPrinterCode.BLL
         /// [Fully independent] It does not reuse the production connection, does not consume a production code Id, does not write to the database and does
         ///   not take part in the code-refill quota; production must already be stopped during a test (guaranteed by mutual exclusion), so clearing the three
         ///   queues does not affect any in-flight production data.
-        /// [Release iron rule (emphasized three times by Mr. Wan at 19:53)] Regardless of success / reject / timeout / exception,
+        /// [Release iron rule] Regardless of success / reject / timeout / exception,
         ///   finally always calls Close() + Dispose() and nulls the reference, never leaving an unclosed connection object behind.
         /// </summary>
         private void TestPrintSequence()
@@ -2182,3 +2182,4 @@ namespace InkPrinterCode.BLL
         }
     }
 }
+

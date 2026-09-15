@@ -154,7 +154,7 @@ namespace InkPrinterCode.BLL
 
         /// <summary>
         /// Save the configuration (validate both the TCP and serial rows → write to the database in a single transaction → log)
-        /// [Note] Whichever one is enabled, the parameters of both rows are saved together — nothing is lost when switching (requested by Mr. Wan).
+        /// [Note] Whichever one is enabled, the parameters of both rows are saved together — nothing is lost when switching.
         /// </summary>
         /// <param name="tcpConfig">TCP row configuration</param>
         /// <param name="serialConfig">Serial row configuration</param>

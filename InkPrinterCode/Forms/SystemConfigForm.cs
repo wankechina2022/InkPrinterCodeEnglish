@@ -74,7 +74,7 @@ namespace InkPrinterCode.Forms
             //   "500~60000, only effective on start/reconnect/test" is about 161px, which the original 140px-wide
             //   hint box would clip; a pure coordinate adjustment with no logic impact.
             // [2026-09-10] Feedback: the bottom buttons were clipped by the form's lower border (client area is
-            //   around 600~605px, the three buttons at Location.Y=570 with height 36 -> bottom edge 606px, a few
+            //   about 600~605px, the three buttons at Location.Y=570 with height 36 -> bottom edge 606px, a few
             //   pixels cut off). Outer height 640 -> 670 (+30), client area about 630~635px, leaving about 25~30px
             //   of margin below the buttons. Width and all control coordinates stay untouched.
             this.Size = new Size(500, 670);

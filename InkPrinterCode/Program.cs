@@ -10,7 +10,7 @@ namespace InkPrinterCode
     ///   1. Global exception fallback: UI-thread exceptions (ThreadException) + non-UI-thread exceptions (UnhandledException)
     ///      are uniformly written to the error log and reported to the user, eliminating both "an unhandled-exception
     ///      dialog pops up and the app exits" and "the app dies silently";
-    ///   2. Single-instance restriction: a named Mutex prevents the on-site operator from double-clicking repeatedly
+    ///   2. Single-instance restriction: a named Mutex prevents accidental double launches
     ///      and spawning multiple instances —— two instances writing the same SQLite database file at the same time
     ///      very easily leads to lock conflicts and data corruption;
     ///   3. Database initialization: create directory + create tables (only CREATE IF NOT EXISTS, never modify existing tables);
@@ -100,7 +100,7 @@ namespace InkPrinterCode
         /// <summary>
         /// Unhandled exception on the UI thread
         /// [Handling strategy] Log it + notify the user, and let the program keep running ——
-        ///   exiting the whole application because of one small exception while printing is going on on-site
+        ///   exiting the whole application because of one small exception while printing is in progress
         ///   is far too costly; here we choose to "report but do not exit".
         /// </summary>
         private static void Application_ThreadException(object sender, ThreadExceptionEventArgs e)

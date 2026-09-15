@@ -32,16 +32,16 @@
         /// <summary>Print status, NotPrinted by default</summary>
         public PrintStatus PrintStatus { get; set; } = PrintStatus.NotPrinted;
 
-        /// <summary>Time sent to the inkjet printer, format yyyy-MM-dd HH:mm:ss; empty string when not sent (used in phase 2)</summary>
+        /// <summary>Time sent to the inkjet printer, format yyyy-MM-dd HH:mm:ss; empty string when not sent (populated during printing)</summary>
         public string SendTime { get; set; } = string.Empty;
 
-        /// <summary>Print completion time (the moment a success response is received from the printer); empty string when not completed (used in phase 2)</summary>
+        /// <summary>Print completion time (the moment a success response is received from the printer); empty string when not completed (populated during printing)</summary>
         public string PrintTime { get; set; } = string.Empty;
 
-        /// <summary>Raw text returned by the printer; the original message is kept on failure to aid troubleshooting (used in phase 2)</summary>
+        /// <summary>Raw text returned by the printer; the original message is kept on failure to aid troubleshooting (populated during printing)</summary>
         public string FeedbackText { get; set; } = string.Empty;
 
-        /// <summary>Retry count, incremented on failed retries (used in phase 2)</summary>
+        /// <summary>Retry count, incremented on failed retries (maintained by the printing flow)</summary>
         public int RetryCount { get; set; } = 0;
 
         /// <summary>Insert time (that is, import time), format yyyy-MM-dd HH:mm:ss. The time range filter on the data view page uses this column</summary>

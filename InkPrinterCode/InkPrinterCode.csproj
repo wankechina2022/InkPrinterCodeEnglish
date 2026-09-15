@@ -2,19 +2,17 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- [2026-09-11] Confirmed by Wan: the customer site runs Win7 SP1 x64. .NET 8 does not
-         support Win7 (minimum Win10 1607), so the target was lowered to .NET 6 — the last LTS
-         supporting Win7. A code scan confirmed zero dependence on .NET 8-only APIs or C# 11/12
-         syntax; Environment.TickCount64 is a .NET Core 3.0+ API natively supported on net6.
-         Therefore only this line changed, with zero changes to code files.
-         Deployment requirement: .NET 6 Desktop Runtime (x64) must be installed on the target machine. -->
+    <!-- [2026-09-11] Targeting .NET 6 — the last LTS with Windows 7 support (.NET 8 requires Win10 1607+).
+         Code verified free of .NET 8-only APIs and C# 11/12 syntax; Environment.TickCount64 is a
+         .NET Core 3.0+ API natively supported on net6.
+         Requires .NET 6 Desktop Runtime (x64). -->
     <TargetFramework>net6.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- [2026-09-10] Third-party dependencies (since Phase 2, App.config is no longer used;
+  <!-- [2026-09-10] Third-party dependencies (since App.config is no longer used;
        all settings live in the database SystemConfig table)
        Microsoft.Data.Sqlite : SQLite data access, official Microsoft package, no manual native dll shipping needed
        NPOI                  : Excel read/write (.xls / .xlsx); import takes the first column, export uses streaming SXSSF
@@ -22,10 +20,10 @@
        all three packages ship netstandard2.0/net6 targets, directly usable on net6;
        do NOT upgrade to 9.x/10.x); NPOI locked to the stable 2.7.5 line.
        [2026-09-10] Removed System.Configuration.ConfigurationManager — config files are deprecated
-       (decision by Wan: writing back to a config file previously caused format corruption that
+       (writing back to a config file previously caused format corruption that
        prevented the program from starting; replaced by built-in defaults + SystemConfig table as a
-       double safeguard).
-       [2026-09-10] Phase 2 round 2 added System.IO.Ports — on .NET 8 (and net6), SerialPort is not
+       safety net).
+       [2026-09-10] System.IO.Ports was added later — on .NET 8 (and net6), SerialPort is not
        in the shared framework; the serial connection (SerialPrinterConnection) requires this
        explicit package reference, still locked to the 8.0 line. -->
   <ItemGroup>

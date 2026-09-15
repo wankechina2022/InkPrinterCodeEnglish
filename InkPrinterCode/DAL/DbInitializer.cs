@@ -86,7 +86,7 @@ CREATE INDEX IF NOT EXISTS IX_CodeData_BatchId ON CodeData(BatchId);";
 
         /// <summary>
         /// Inkjet printer connection config table ([2026-09-10] added in stage two; two-row design: one TCP row, one serial row)
-        /// [Switch mechanism] The IsEnabled flag decides which row is active; switching only changes the flag and the parameters never overwrite each other (Mr. Wan's requirement).
+        /// [Switch mechanism] The IsEnabled flag decides which row is active; switching only changes the flag and the parameters never overwrite each other (a design requirement).
         /// </summary>
         private const string SQL_CREATE_PRINTER_CONFIG = @"
 CREATE TABLE IF NOT EXISTS PrinterConfig (
@@ -106,9 +106,9 @@ CREATE TABLE IF NOT EXISTS PrinterConfig (
 CREATE INDEX IF NOT EXISTS IX_PrinterConfig_ConnType ON PrinterConfig(ConnType);";
 
         /// <summary>
-        /// System parameter configuration table (added in phase two on [2026-09-10]; key-value pairs)
-        /// [Background] The App.config configuration file has been abandoned (Mr. Wan's decision: writing back to the
-        ///   config file once caused a historical incident in which the format was corrupted and the program could not
+        /// System parameter configuration table (added on [2026-09-10]; key-value pairs)
+        /// [Background] The App.config configuration file has been abandoned (writing back to the
+        ///   config file once caused a past incident where a corrupted config file prevented startup, and the program could not
         ///   start), so all adjustable parameters were migrated into this table, with the built-in defaults seeded when
         ///   the database is first created.
         /// </summary>
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS SystemConfig (
                 SqliteHelper.ExecuteNonQuery(SQL_INDEX_BATCH_ID);
                 SqliteHelper.ExecuteNonQuery(SQL_INDEX_PRINTER_CONFIG_TYPE);
 
-                // ---------- Seeding and parameter loading (added in phase two on [2026-09-10]) ----------
+                // ---------- Seeding and parameter loading (added on [2026-09-10]) ----------
                 //   Seeding: on first database creation, INSERT OR IGNORE the built-in default parameters into
                 //     SystemConfig (existing values are never overwritten);
                 //   Loading: pour the whole SystemConfig table's key/value pairs into ConfigHelper's in-memory cache;

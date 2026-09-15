@@ -59,11 +59,11 @@ VALUES
         }
 
         // ============================================================
-        // 1.5 Code claiming and status write-back for printing (added in round 3 of phase two)
+        // 1.5 Code claiming and status write-back for printing (added for the printing flow)
         // ============================================================
 
         /// <summary>
-        /// Take N not-printed codes in Id order (Mr. Wan's requirement: claim codes from the data in Id order)
+        /// Take N not-printed codes in Id order (the design requires claiming codes from the data in Id order)
         /// [Index] It uses IX_CodeData_Status_Id, so with no codes available it returns an empty table in milliseconds.
         /// [Return] Guaranteed non-null: with no codes available it returns an empty list, and the caller can just check Count.
         /// </summary>
@@ -120,7 +120,7 @@ WHERE Id = @Id AND PrintStatus = 0;";
         /// <summary>
         /// Increment the retry count by 1.
         /// [2026-09-10] Orphaned-method annotation: under the code-claim occupancy model, "a code is written only once
-        ///   and never retried" has been finalized (Mr. Wan's 17:29 instruction), so this method currently has no call
+        ///   and never retried" has been finalized (settled on 2026-09-10 at 17:29), so this method currently has no call
         ///   site and is retained for future use (should a feature such as "manually re-push a failed code" be introduced).
         ///   The counter column RetryCount remains in the table but is no longer written by the code-sending flow.
         /// </summary>

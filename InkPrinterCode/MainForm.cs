@@ -13,7 +13,7 @@ namespace InkPrinterCode
     ///   "Data Import" -> select file -> confirm -> progress form -> background import -> result dialog -> refresh dashboard
     ///   "Data View"  -> open the data view form (query / paging / export / delete) -> refresh dashboard after close
     ///
-    /// [Phase 2 wiring scope (round 3)]
+        /// [Printing feature wiring scope]
     ///   "Start Printing" -> PrintServiceBLL.Start(): connect -> spin up thread -> signal setup / clear queues -> prefill codes -> heartbeat / send codes
     ///   "Stop Printing"  -> confirmation box -> PrintServiceBLL.Stop(): seven-step stop sequence (all threads exit, all objects released)
     ///   "Test Print"     -> PrintServiceBLL.TestPrint(): send the full AB12345 buffer frame (available only while running)
@@ -31,7 +31,7 @@ namespace InkPrinterCode
     /// </summary>
     public partial class MainForm : Form
     {
-        /// <summary>Print service state machine (core of phase 2; events fire on background threads, handlers always marshal via Invoke)</summary>
+        /// <summary>Print service state machine (the core of the print service; events fire on background threads, handlers always marshal via Invoke)</summary>
         private readonly PrintServiceBLL _printService = new PrintServiceBLL();
 
         public MainForm()
@@ -252,7 +252,7 @@ namespace InkPrinterCode
         }
 
         // ============================================================
-        // Printing operations (phase 2, round 3 wiring)
+        // Printing operations (printing flow wiring)
         // ============================================================
 
         /// <summary>
@@ -264,7 +264,7 @@ namespace InkPrinterCode
         /// </summary>
         private void btnStart_Click(object sender, EventArgs e)
         {
-            // Starting with no codes is allowed too (stay running and wait for an import, confirmed by the customer); missing config is detected by the state machine and reported back
+            // Starting with no codes is allowed too (it stays running and waits for an import by design); missing config is detected by the state machine and reported back
             _printService.Start();
         }
 
@@ -432,7 +432,7 @@ namespace InkPrinterCode
         }
 
         // ============================================================
-        // Configuration entries (phase 2, round 1)
+        // Configuration entries (configuration UI wiring)
         // ============================================================
 
         /// <summary>
