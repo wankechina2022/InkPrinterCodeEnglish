@@ -454,11 +454,7 @@ namespace InkPrinterCode.Forms
                 {
                     // [2026-09-16] Switched to the streaming export (reader -> SXSSF) so large result
                     //   sets no longer load fully into memory; UI behavior and columns are unchanged.
-                    long exportedRows = 0;
-                    CodeQueryBLL.ExportToFile(BuildFilter(), dialog.FileName, "CodeData", delegate (long rows)
-                    {
-                        exportedRows = rows;
-                    });
+                    int exportedRows = CodeQueryBLL.ExportToFile(BuildFilter(), dialog.FileName, "CodeData");
 
                     LogHelper.Instance.Info("Excel export succeeded, file=" + dialog.FileName
                                             + ", rows=" + exportedRows.ToString());

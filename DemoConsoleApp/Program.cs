@@ -114,12 +114,50 @@ for (int i = 1; i <= 3; i++)
     await Task.Delay(400);
 }
 
+// Wait for every job in this batch to report a 0x32 completion before we force an
+// overflow. Waiting on the completion events (not a fixed delay) makes the overflow
+// step deterministic: we only proceed once the FIFO is known to have drained.
+// [2026-09-16] Robustness: the overflow no longer depends on the mock's print time.
+DateTime drainDeadline = DateTime.UtcNow.AddSeconds(10);
+while (DateTime.UtcNow < drainDeadline && completedJobs < 3)
+{
+    await Task.Delay(100);
+}
+
+Console.WriteLine("  -> Batch 1 done; " + completedJobs.ToString()
+                  + " completion event(s) received, FIFO drained.");
 Console.WriteLine();
 
 // ------------------------------------------------------------
 // 3. Deliberately overflow the queue to demonstrate 0x15 handling.
 // ------------------------------------------------------------
 Console.WriteLine("[step 3] Overflowing the queue to demonstrate NAK (0x15) handling ...");
+Console.WriteLine();
+
+// Submit three jobs back-to-back so all three land in the FIFO, then a fourth that
+// must be refused because the on-board queue is already full (capacity 3). This is
+// deterministic: after the drain above the FIFO starts empty, the three quick
+// submissions saturate it, and the fourth is NAKed.
+// [2026-09-16] Robustness: the overflow no longer relies on mock print-time timing.
+for (int i = 1; i <= 3; i++)
+{
+    PrintJob job = new PrintJob(DateTime.Now.ToString("yyyy-MM-dd"), "FILL" + i.ToString("D6"));
+
+    try
+    {
+        string jobId = await printer.SendPrintJobAsync(job);
+        int pending = await printer.GetFifoQueueCountAsync();
+
+        Console.WriteLine("  -> Submitted " + job.CodeValue
+                          + " as " + jobId
+                          + "  |  Pending in FIFO: " + pending.ToString());
+    }
+    catch (PrinterNackException ex)
+    {
+        Console.WriteLine("  -> Job " + job.CodeValue + " was NACKed: " + ex.Message);
+    }
+}
+
 Console.WriteLine();
 
 PrintJob overflowJob = new PrintJob(DateTime.Now.ToString("yyyy-MM-dd"), "OVERFLOW001");

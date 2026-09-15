@@ -109,8 +109,14 @@ public sealed class DisconnectReconnectTests
     /// half-open case the timeout path exists to catch.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Auto-reconnect must not only notice the drop: it must actually restore a usable
+    /// session. The simulator is torn down, a command is issued to force the timeout
+    /// path, and then the simulator is brought back on the same port. The client must
+    /// reconnect and accept a fresh job.
+    /// </summary>
     [Fact]
-    public async Task AutoReconnect_EngagesWhenCommandTimesOut()
+    public async Task AutoReconnect_RecoversAfterServerRestart()
     {
         int port = FindFreePort();
 
@@ -119,31 +125,30 @@ public sealed class DisconnectReconnectTests
 
         simulator.Start();
 
+        using DominoA200Client client = new DominoA200Client(
+            "127.0.0.1",
+            port,
+            responseTimeoutMs: 500,
+            autoReconnect: true,
+            reconnectDelayMs: 300);
+
+        TaskCompletionSource<bool> reconnecting =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        int disconnectedEvents = 0;
+
+        client.OnDisconnected += (sender, args) => Interlocked.Increment(ref disconnectedEvents);
+        client.OnReconnecting += (sender, args) => reconnecting.TrySetResult(true);
+
+        await client.ConnectAsync();
+
         try
         {
-            using DominoA200Client client = new DominoA200Client(
-                "127.0.0.1",
-                port,
-                responseTimeoutMs: 500,
-                autoReconnect: true,
-                reconnectDelayMs: 300);
-
-            TaskCompletionSource<bool> reconnecting =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            int disconnectedEvents = 0;
-
-            client.OnDisconnected += (sender, args) => Interlocked.Increment(ref disconnectedEvents);
-            client.OnReconnecting += (sender, args) => reconnecting.TrySetResult(true);
-
-            await client.ConnectAsync();
-
-            // Kill the peer while the client still believes it holds a live connection.
+            // [2026-09-16] Kill the peer while the client still believes it holds a live
+            // connection, then issue a command whose answer can never arrive. This drives
+            // the timeout / write-failure path that raises OnReconnecting and starts the
+            // recovery loop — without relying on a fixed sleep for the loss to be seen.
             simulator.Stop();
-
-            // Give the OS a moment to tear the listener down, then issue a command whose
-            // answer can never arrive.
-            await Task.Delay(200);
 
             try
             {
@@ -151,8 +156,7 @@ public sealed class DisconnectReconnectTests
             }
             catch (Exception)
             {
-                // The expected outcome: a timeout (or a write failure), either of which
-                // routes through the connection-loss handler.
+                // A timeout (or a write failure) routes through the connection-loss handler.
             }
 
             Task raised = await Task.WhenAny(reconnecting.Task, Task.Delay(TimeSpan.FromSeconds(5)));
@@ -161,6 +165,25 @@ public sealed class DisconnectReconnectTests
                 "The client should have raised OnReconnecting after the link was lost.");
             Assert.True(Volatile.Read(ref disconnectedEvents) >= 1,
                 "The client should have raised OnDisconnected.");
+
+            // Bring the simulator back on the SAME port so recovery can succeed.
+            simulator.Start();
+
+            // [2026-09-16] Poll for the actual reconnection rather than sleeping a fixed
+            // interval, so the assertion is event-driven.
+            DateTime reconnectDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < reconnectDeadline && !client.IsConnected)
+            {
+                await Task.Delay(100);
+            }
+
+            Assert.True(client.IsConnected,
+                "The client should have reconnected after the simulator came back.");
+
+            // The recovered session must be fully functional, not merely connected.
+            string jobId = await client.SendPrintJobAsync(new PrintJob("2026-09-15", "RECOV00001"));
+            Assert.False(string.IsNullOrEmpty(jobId),
+                "A job submitted after recovery should be accepted and return an id.");
         }
         finally
         {
@@ -193,6 +216,62 @@ public sealed class DisconnectReconnectTests
         Assert.False(reconnectingRaised,
             "A deliberate disconnect is not a failure and must not start a reconnect loop.");
         Assert.False(client.IsConnected);
+    }
+
+    /// <summary>
+    /// Without auto-reconnect, a command that can never be answered must be reported as
+    /// a liveness failure: the client raises <see cref="OnDisconnected"/>, drops the
+    /// connection, and surfaces the failure as <see cref="PrinterTimeoutException"/>.
+    ///
+    /// <para>
+    /// A dedicated simulator is used so stopping it does not disturb the shared fixture
+    /// the other tests rely on.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task CommandTimeout_WithoutAutoReconnect_RaisesDisconnected()
+    {
+        int port = FindFreePort();
+
+        DominoMockServer.MockPrinter simulator =
+            new DominoMockServer.MockPrinter(port, printDurationMs: 400, quiet: true);
+
+        simulator.Start();
+
+        try
+        {
+            using DominoA200Client client = new DominoA200Client(
+                "127.0.0.1",
+                port,
+                responseTimeoutMs: 500,
+                autoReconnect: false);
+
+            int disconnectedEvents = 0;
+            client.OnDisconnected += (sender, args) => Interlocked.Increment(ref disconnectedEvents);
+
+            await client.ConnectAsync();
+            Assert.True(client.IsConnected);
+
+            // Tear the peer down so the next command can never get a reply, then issue it.
+            // [2026-09-16] A short settle after the stop lets the loss be observed before
+            // the write, making the timeout path deterministic.
+            simulator.Stop();
+            await Task.Delay(200);
+
+            await Assert.ThrowsAsync<PrinterTimeoutException>(async () =>
+            {
+                await client.SendPrintJobAsync(new PrintJob("2026-09-15", "TIMEOUT002"));
+            });
+
+            Assert.False(client.IsConnected,
+                "A command timeout without auto-reconnect must close the connection.");
+            Assert.Equal(1, Volatile.Read(ref disconnectedEvents),
+                "The client should have raised OnDisconnected exactly once.");
+        }
+        finally
+        {
+            simulator.Stop();
+        }
     }
 
     /// <summary>

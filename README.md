@@ -62,7 +62,7 @@ trademark or documentation — see [LICENSE](LICENSE) for the full statement.
 ### 1. Run the mock simulator
 
 ```bash
-dotnet run --project src/DominoMockServer
+dotnet run --project DominoMockServer
 ```
 
 ```
@@ -76,12 +76,13 @@ Emulated limits: FIFO capacity 3, print time 1500 ms.
 ### 2. Run the demo, in a second terminal
 
 ```bash
-dotnet run --project src/DemoConsoleApp
+dotnet run --project DemoConsoleApp
 ```
 
-You will see the connection handshake, three jobs submitted and acknowledged, a
-deliberate queue overflow rejected with `0x15`, and the `0x32` completion events
-arriving asynchronously — with every byte printed as raw hexadecimal:
+You will see the connection handshake, two batches of three jobs submitted and
+acknowledged, a deliberate queue overflow (a fourth job) rejected with `0x15`, and
+the `0x32` completion events arriving asynchronously — with every byte printed as
+raw hexadecimal:
 
 ```
     [08:14:22.310] [TX     ] 1B 49 31 32 04

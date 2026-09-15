@@ -163,6 +163,18 @@ public void ReportAlarm();
 
 ---
 
+## `PrinterStateChangedEventArgs` (`DominoA200Sdk.Core`)
+
+Payload for `PrinterStateMachine.StateChanged`, surfaced to callers through
+`DominoA200Client.OnStateChanged`.
+
+| Member      | Type           | Description                              |
+|-------------|----------------|------------------------------------------|
+| `Previous`  | `PrinterState` | The state held before the transition.    |
+| `Current`   | `PrinterState` | The state held after the transition.     |
+
+---
+
 ## `JobQueue` (`DominoA200Sdk.Core`)
 
 The FIFO mirror. Thread-safe.
@@ -247,3 +259,57 @@ Emulated limits: FIFO capacity 3, print duration configurable (1500 ms by defaul
 
 `MockFifoQueue` and `CodenetHandler` are public so the emulated admission rules and
 command grammar can be tested in isolation, without opening a socket.
+
+---
+
+## `CodenetHandler` (`DominoMockServer`)
+
+Command-level façade over the mock printer's protocol handling. Exposed so the
+emulated command grammar can be unit-tested without a socket.
+
+### Static byte constants
+
+| Name                | Value | Meaning                               |
+|---------------------|-------|---------------------------------------|
+| `AckByte`           | `0x06`| Positive acknowledgement (ACK).        |
+| `NakByte`           | `0x15`| Negative acknowledgement (NAK).        |
+| `PrintCompleteByte` | `0x32`| Unsolicited print-complete event.     |
+| `Terminator`        | `0x04`| Frame terminator (EOT).                |
+
+### Other members
+
+| Member                  | Description                                                                 |
+|-------------------------|-----------------------------------------------------------------------------|
+| `Parse(byte[] frame)`   | Interprets a raw frame, returning a `ParsedCommand`.                        |
+| `Log`                   | Optional sink (`Action<string>?`) for malformed-frame diagnostics.          |
+| `CommandKind` (enum)    | `Unknown`, `SignalSetup`, `FifoQuery`, `ClearQueue`, `PrintJob`.            |
+| `ParsedCommand`         | Parse result exposing `Kind`, `Payload` (print job) and `QueueIndex`.      |
+
+---
+
+## `MockFifoQueue` (`DominoMockServer`)
+
+Simulates the A200+ on-board FIFO. Exposed so the three-deep admission rule can be
+tested in isolation.
+
+| Member                  | Description                                                              |
+|-------------------------|--------------------------------------------------------------------------|
+| `CAPACITY`              | `const int`, fixed at `3` — mirrors the hardware's three-deep queue.    |
+| `Count`                 | Current number of held jobs.                                             |
+| `IsFull`                | `true` when `Count >= CAPACITY`.                                         |
+| `TryEnqueue(MockJob)`   | Admit a job; returns `false` (caller should NAK) when the queue is full. |
+| `DequeueOldest()`       | Remove and return the oldest job, or `null` when empty.                  |
+| `Clear()`               | Discard all queued jobs.                                                 |
+
+---
+
+## `MockJob` (`DominoMockServer`)
+
+A job held by the mock FIFO, standing in for a real print job.
+
+| Member                                       | Type        | Description                              |
+|----------------------------------------------|-------------|------------------------------------------|
+| `MockJob(string jobId, string payload, DateTime queuedAt)` | constructor | Creates a mock job.               |
+| `JobId`                                      | `string`    | Identifier assigned by the mock.         |
+| `Payload`                                    | `string`    | The code text carried by the job.        |
+| `QueuedAt`                                   | `DateTime`  | Local time at which the job was admitted.|

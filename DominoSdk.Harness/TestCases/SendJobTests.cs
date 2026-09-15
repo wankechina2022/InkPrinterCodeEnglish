@@ -78,6 +78,10 @@ public sealed class SendJobTests
                 await client.SendPrintJobAsync(new PrintJob("2026-09-15", "OVERFLOWX9"));
             });
 
+            // [2026-09-16] A NAK rejection must also drive the client into the Alarm
+            // state, because the receive loop reports the rejection via ReportAlarm.
+            Assert.Equal(PrinterState.Alarm, client.State);
+
             await client.DisconnectAsync();
         }
         finally

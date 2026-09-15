@@ -401,12 +401,15 @@ WHERE Id = @Id AND PrintStatus = 0;";
         ///   PrintStatus -> "Status" text (via CASE), CreateTime -> "Import Time" -- so the exported file content is identical.
         /// </summary>
         /// <param name="filter">Filter conditions (paging is ignored, exactly like QueryForExport)</param>
-        /// <param name="consume">Callback that writes the reader to the xlsx file; the reader is valid only for the duration of the call</param>
-        public static void QueryForExportReader(CodeQueryFilter filter, Action<SqliteDataReader> consume)
+        /// <param name="consume">Callback that writes the reader to the xlsx file and returns the exported row count;
+        ///   the reader is valid only for the duration of the call. [2026-09-16] Callback return value added so the
+        ///   row count flows back to the UI like the legacy DataTable path did.</param>
+        /// <returns>The row count returned by the callback (0 when the filter is null).</returns>
+        public static int QueryForExportReader(CodeQueryFilter filter, Func<SqliteDataReader, int> consume)
         {
             if (filter == null)
             {
-                return;
+                return 0;
             }
 
             List<SqliteParameter> parameters = new List<SqliteParameter>();
@@ -428,7 +431,7 @@ WHERE Id = @Id AND PrintStatus = 0;";
 
                     using (SqliteDataReader reader = command.ExecuteReader())
                     {
-                        consume(reader);
+                        return consume(reader);
                     }
                 }
             }
