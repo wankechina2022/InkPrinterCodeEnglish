@@ -767,10 +767,39 @@ public sealed class DominoA200Client : IDisposable
     {
         bool wasConnected = _connected;
 
+        // [2026-09-17] Capture whether a reconnect loop was already armed BEFORE
+        // CloseInternal() clears _running. Used below to decide where to re-arm.
+        bool loopAlreadyArmed = _reconnecting != 0;
+
         CloseInternal();
+
+        // [2026-09-17] Re-arm BEFORE the wasConnected check, not after it. This is
+        // what makes a repeated loss survivable.
+        //
+        // Why it matters: one physical disconnect routinely reports twice - the receive
+        // thread spots the FIN and calls this method, and the caller's in-flight command
+        // then fails and calls it again. The first call sets _connected = false, so the
+        // second sees wasConnected == false. CloseInternal() has already cleared
+        // _running, and when the re-arm lived *below* the early return the second call
+        // left _running == false for good - which silently killed the ReconnectLoop that
+        // the first call had just started, because its loop condition requires _running.
+        // The client stayed disconnected forever and the restart test timed out with a
+        // completely unchanged duration, since nothing had actually changed in the
+        // timing, only in whether recovery could ever proceed.
+        //
+        // _running must be true whenever a reconnect is still desired, no matter how
+        // many times the loss is reported.
+        if (_autoReconnect && !_disposed)
+        {
+            _running = true;
+        }
 
         if (!wasConnected)
         {
+            // Nothing further to announce: the loss was already reported by the call
+            // that flipped _connected (OnDisconnected / Disconnected transition /
+            // OnReconnecting all fired there). Do NOT spawn another loop here - the
+            // existing one is still alive and will retry now that _running is restored.
             return;
         }
 
@@ -785,9 +814,13 @@ public sealed class DominoA200Client : IDisposable
         // removes a double-fire of OnDisconnected).
         if (_autoReconnect && !_disposed)
         {
-            _running = true;
-
-            OnReconnecting?.Invoke(this, EventArgs.Empty);
+            // Only announce the outage once per loss. If a loop was already armed, this
+            // is a repeat report of the same outage and firing the event again would
+            // both mislead subscribers and double-count in tests that tally it.
+            if (!loopAlreadyArmed)
+            {
+                OnReconnecting?.Invoke(this, EventArgs.Empty);
+            }
 
             // [2026-09-16] Guarantee only one reconnect loop at a time (F2): if a loop
             // is already running, don't spawn a second one.
@@ -820,6 +853,24 @@ public sealed class DominoA200Client : IDisposable
 
                     LogTraffic("INFO", "Attempting reconnect to " + _host + ":" + _port.ToString() + " ...");
                     await ConnectAsync().ConfigureAwait(false);
+
+                    // [2026-09-17] Verify the outcome instead of assuming success.
+                    //
+                    // ConnectAsync() has a silent early return when a connect is already
+                    // being attempted (_connecting is set) - which happens routinely here.
+                    // The handshake that follows a connection loss runs *inside*
+                    // ConnectAsync, so when HandleConnectionLoss() is triggered by a
+                    // handshake timeout the original call is still in flight, _connecting
+                    // is still true, and this awaited call returns immediately having done
+                    // nothing at all. Treating that no-op as "Reconnect succeeded." ended
+                    // the loop while the client was still disconnected, so nothing retried
+                    // and the link stayed down for good - which is exactly the symptom the
+                    // restart test reports. Only a genuine connect flips _connected.
+                    if (!_connected)
+                    {
+                        LogTraffic("WARN", "Reconnect attempt returned without establishing a connection; retrying.");
+                        continue;
+                    }
 
                     // [2026-09-16] Re-check after the await (F3): the client may have been
                     // disposed or intentionally closed while we were reconnecting.

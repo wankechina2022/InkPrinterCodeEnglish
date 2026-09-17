@@ -616,7 +616,22 @@ public sealed class DominoA200SerialClient : IDisposable
     {
         bool wasConnected = _connected;
 
+        // [2026-09-17] Captured before CloseInternal() clears _running; see below.
+        bool loopAlreadyArmed = _reconnecting != 0;
+
         CloseInternal();
+
+        // [2026-09-17] Re-arm _running BEFORE the wasConnected check. One physical
+        // disconnect can be reported twice (the blocked reader notices it, then the
+        // caller's in-flight command fails). The first report sets _connected = false,
+        // so the second sees wasConnected == false; CloseInternal() has already cleared
+        // _running, and re-arming only inside the wasConnected branch left it false for
+        // good - killing the ReconnectLoop the first report had just started, because
+        // that loop's condition requires _running. Mirrors DominoA200Client.
+        if (_autoReconnect && !_disposed)
+        {
+            _running = true;
+        }
 
         if (!wasConnected)
         {
@@ -625,9 +640,11 @@ public sealed class DominoA200SerialClient : IDisposable
 
         if (_autoReconnect && !_disposed)
         {
-            _running = true;
-
-            OnReconnecting?.Invoke(this, EventArgs.Empty);
+            // Announce the outage once per loss, not once per report.
+            if (!loopAlreadyArmed)
+            {
+                OnReconnecting?.Invoke(this, EventArgs.Empty);
+            }
 
             if (System.Threading.Interlocked.CompareExchange(ref _reconnecting, 1, 0) == 0)
             {
@@ -656,6 +673,17 @@ public sealed class DominoA200SerialClient : IDisposable
 
                     LogTraffic("INFO", "Attempting reconnect to " + _portName + " ...");
                     await ConnectAsync().ConfigureAwait(false);
+
+                    // [2026-09-17] Verify the outcome instead of assuming success.
+                    // ConnectAsync() returns silently when a connect is already in flight
+                    // (_connecting set). Reporting that no-op as "Reconnect succeeded."
+                    // would end the loop with the port still closed and nothing retrying.
+                    // Mirrors the fix in DominoA200Client.ReconnectLoop.
+                    if (!_connected)
+                    {
+                        LogTraffic("WARN", "Reconnect attempt returned without opening the port; retrying.");
+                        continue;
+                    }
 
                     if (_disposed || !_running)
                     {
