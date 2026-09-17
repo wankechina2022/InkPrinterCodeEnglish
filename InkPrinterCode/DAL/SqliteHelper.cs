@@ -39,13 +39,12 @@ namespace InkPrinterCode.DAL
 
             SqliteConnection connection = new SqliteConnection(ConfigHelper.ConnectionString);
 
-            // [2026-09-17 fix] Concurrent-writer busy handling, moved here from the
-            // connection string: BusyTimeout is a SqliteConnection property in
-            // Microsoft.Data.Sqlite, not a connection-string keyword. 5 s of busy-wait
-            // lets the background print thread and the UI finish their short writes
-            // instead of failing immediately with SQLITE_BUSY (database is locked).
-            connection.BusyTimeout = TimeSpan.FromMilliseconds(5000);
-
+            // [2026-09-17 fix] No busy-timeout setup here on purpose. Microsoft.Data.Sqlite
+            // has no BusyTimeout API (that is System.Data.SQLite) and no busy_timeout
+            // connection-string keyword either — adding either form breaks at runtime or
+            // compile time. It handles SQLITE_BUSY ("database is locked") internally by
+            // retrying until DefaultTimeout elapses (30 s by default), which already covers
+            // the concurrent-writer case this app can produce.
             connection.Open();
             return connection;
         }

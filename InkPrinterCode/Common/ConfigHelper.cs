@@ -171,10 +171,10 @@
         public static string ConnectionString
         {
             // [2026-09-16] P1: busy handling for concurrent writers.
-            // [2026-09-17 fix] BusyTimeout is NOT a Microsoft.Data.Sqlite connection-string
-            //   keyword (that is System.Data.SQLite syntax) — putting it here made every
-            //   connection throw ArgumentException at startup. The equivalent is the
-            //   SqliteConnection.BusyTimeout property, set in SqliteHelper.CreateConnection.
+            // [2026-09-17 fix] Final answer: Microsoft.Data.Sqlite supports NO busy-timeout
+            //   knob at all — not a connection-string keyword, not a property (verified
+            //   against the 8.0.31 assembly). It retries SQLITE_BUSY internally until
+            //   DefaultTimeout (30 s default). The connection string stays plain.
             get { return "Data Source=" + DbFilePath + ";"; }
         }
 

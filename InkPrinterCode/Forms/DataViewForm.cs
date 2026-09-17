@@ -62,6 +62,12 @@ namespace InkPrinterCode.Forms
         private Button btnLast = new Button();
         private Label lblPageInfo = new Label();
         private Label lblTotal = new Label();
+        private Panel pnlTip;
+        private Label lblTip;
+        private Panel pnlTop;
+        private Label lblStatusTitle;
+        private Label lblTo;
+        private Panel pnlBottom;
 
         /// <summary>
         /// [2026-09-10] Print service reference (injected by the caller) -- this form only reads IsRunning from it, it performs no control actions.
@@ -125,198 +131,90 @@ namespace InkPrinterCode.Forms
         /// </summary>
         private void InitializeComponent()
         {
-            this.Text = "Data View";
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.Size = new Size(1020, 706);
-            this.MinimumSize = new Size(1020, 540);
-            this.Font = new Font("Microsoft YaHei UI", 10F);
-
-            // ---------- Top red reminder bar ----------
-            // [2026-09-10] Persistent Excel long-code precision reminder:
-            //   An Excel numeric cell is internally a double and can only represent 15~16 digit integers exactly.
-            //   When the code value column is stored as "Number" format, a long code over 15 digits loses its
-            //   trailing digits inside Excel, so the program already reads a wrong value.
-            //   The only prevention is setting the column to "Text" before import, so this is placed in the most
-            //   visible spot instead of being written into documentation.
-            Panel pnlTip = new Panel();
-            pnlTip.Dock = DockStyle.Top;
-            pnlTip.Height = 46;
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(DataViewForm));
+            pnlTip = new Panel();
+            lblTip = new Label();
+            pnlTop = new Panel();
+            lblStatusTitle = new Label();
+            lblTo = new Label();
+            pnlBottom = new Panel();
+            pnlTip.SuspendLayout();
+            pnlTop.SuspendLayout();
+            SuspendLayout();
+            // 
+            // pnlTip
+            // 
             pnlTip.BackColor = Color.FromArgb(255, 238, 238);
-            pnlTip.Padding = new Padding(10, 4, 10, 4);
-
-            Label lblTip = new Label();
-            lblTip.Dock = DockStyle.Fill;
-            lblTip.AutoSize = false;
-            lblTip.ForeColor = Color.FromArgb(192, 0, 0);
-            lblTip.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-            lblTip.TextAlign = ContentAlignment.MiddleLeft;
-            lblTip.Text = "[Import Reminder] Before importing from Excel, be sure to set the code value column to \"Text\" format: "
-                          + "if a long code over 15 digits is stored as a number, Excel itself will lose the trailing digits, and it cannot be restored after import -- the data can only be deleted and re-imported.";
-
             pnlTip.Controls.Add(lblTip);
-
-            // ---------- Filter area (two rows) ----------
-            Panel pnlTop = new Panel();
-            pnlTop.Dock = DockStyle.Top;
-            pnlTop.Height = 96;
-            pnlTop.Padding = new Padding(10);
-
-            // First row: status + time range
-            Label lblStatusTitle = new Label();
-            lblStatusTitle.Text = "Status:";
-            lblStatusTitle.Location = new Point(15, 22);
-            lblStatusTitle.Size = new Size(50, 25);
-
-            cboStatus.Name = "cboStatus";
-            cboStatus.Location = new Point(65, 18);
-            cboStatus.Size = new Size(120, 28);
-            cboStatus.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboStatus.ValueMember = "Value";
-            cboStatus.DisplayMember = "Text";
-
-            chkTime.Name = "chkTime";
-            chkTime.Text = "Filter by time";
-            chkTime.Location = new Point(205, 20);
-            chkTime.Size = new Size(110, 25);
-            chkTime.CheckedChanged += new EventHandler(chkTime_CheckedChanged);
-
-            dtpStart.Name = "dtpStart";
-            dtpStart.Location = new Point(325, 18);
-            dtpStart.Size = new Size(180, 28);
-            dtpStart.Format = DateTimePickerFormat.Custom;
-            dtpStart.CustomFormat = "yyyy-MM-dd HH:mm:ss";
-            dtpStart.Enabled = false;
-
-            Label lblTo = new Label();
-            lblTo.Text = "to";
-            lblTo.Location = new Point(512, 22);
-            lblTo.Size = new Size(25, 25);
-
-            dtpEnd.Name = "dtpEnd";
-            dtpEnd.Location = new Point(542, 18);
-            dtpEnd.Size = new Size(180, 28);
-            dtpEnd.Format = DateTimePickerFormat.Custom;
-            dtpEnd.CustomFormat = "yyyy-MM-dd HH:mm:ss";
-            dtpEnd.Enabled = false;
-
-            // Second row: delete scope switch + action buttons
-            // [2026-09-10] "Include NotPrinted" switch -- unchecked by default, NotPrinted data is protected;
-            //   only when checked can NotPrinted data be deleted, for cleaning up dirty data from a bad import
-            //   (clicking it still requires a second strong confirmation).
-            chkIncludeNotPrinted.Name = "chkIncludeNotPrinted";
-            chkIncludeNotPrinted.Text = "Delete NotPrinted data as well (for cleaning up bad imports)";
-            chkIncludeNotPrinted.Location = new Point(15, 56);
-            chkIncludeNotPrinted.Size = new Size(300, 25);
-            chkIncludeNotPrinted.ForeColor = Color.FromArgb(192, 0, 0);
-            chkIncludeNotPrinted.CheckedChanged += new EventHandler(chkIncludeNotPrinted_CheckedChanged);
-
-            btnQuery.Name = "btnQuery";
-            btnQuery.Text = "Query";
-            btnQuery.Location = new Point(735, 52);
-            btnQuery.Size = new Size(85, 32);
-            btnQuery.Click += new EventHandler(btnQuery_Click);
-
-            btnExport.Name = "btnExport";
-            btnExport.Text = "Export Excel";
-            btnExport.Location = new Point(830, 52);
-            btnExport.Size = new Size(85, 32);
-            btnExport.Click += new EventHandler(btnExport_Click);
-
-            btnDelete.Name = "btnDelete";
-            btnDelete.Text = "Delete";
-            btnDelete.Location = new Point(925, 52);
-            btnDelete.Size = new Size(75, 32);
-            btnDelete.ForeColor = Color.Red;
-            btnDelete.Click += new EventHandler(btnDelete_Click);
-
+            pnlTip.Dock = DockStyle.Top;
+            pnlTip.Location = new Point(0, 0);
+            pnlTip.Name = "pnlTip";
+            pnlTip.Padding = new Padding(10, 4, 10, 4);
+            pnlTip.Size = new Size(1443, 46);
+            pnlTip.TabIndex = 2;
+            // 
+            // lblTip
+            // 
+            lblTip.Dock = DockStyle.Fill;
+            lblTip.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+            lblTip.ForeColor = Color.FromArgb(192, 0, 0);
+            lblTip.Location = new Point(10, 4);
+            lblTip.Name = "lblTip";
+            lblTip.Size = new Size(1423, 38);
+            lblTip.TabIndex = 0;
+            lblTip.Text = resources.GetString("lblTip.Text");
+            lblTip.TextAlign = ContentAlignment.MiddleLeft;
+            // 
+            // pnlTop
+            // 
             pnlTop.Controls.Add(lblStatusTitle);
-            pnlTop.Controls.Add(cboStatus);
-            pnlTop.Controls.Add(chkTime);
-            pnlTop.Controls.Add(dtpStart);
             pnlTop.Controls.Add(lblTo);
-            pnlTop.Controls.Add(dtpEnd);
-            pnlTop.Controls.Add(chkIncludeNotPrinted);
-            pnlTop.Controls.Add(btnQuery);
-            pnlTop.Controls.Add(btnExport);
-            pnlTop.Controls.Add(btnDelete);
-
-            // ---------- Bottom paging area ----------
-            Panel pnlBottom = new Panel();
+            pnlTop.Dock = DockStyle.Top;
+            pnlTop.Location = new Point(0, 46);
+            pnlTop.Name = "pnlTop";
+            pnlTop.Padding = new Padding(10);
+            pnlTop.Size = new Size(1443, 96);
+            pnlTop.TabIndex = 1;
+            // 
+            // lblStatusTitle
+            // 
+            lblStatusTitle.Location = new Point(15, 22);
+            lblStatusTitle.Name = "lblStatusTitle";
+            lblStatusTitle.Size = new Size(50, 25);
+            lblStatusTitle.TabIndex = 0;
+            lblStatusTitle.Text = "Status:";
+            // 
+            // lblTo
+            // 
+            lblTo.Location = new Point(512, 22);
+            lblTo.Name = "lblTo";
+            lblTo.Size = new Size(25, 25);
+            lblTo.TabIndex = 1;
+            lblTo.Text = "to";
+            // 
+            // pnlBottom
+            // 
             pnlBottom.Dock = DockStyle.Bottom;
-            pnlBottom.Height = 48;
-
-            btnFirst.Name = "btnFirst";
-            btnFirst.Text = "First";
-            btnFirst.Location = new Point(15, 9);
-            btnFirst.Size = new Size(70, 30);
-            btnFirst.Click += new EventHandler(btnFirst_Click);
-
-            btnPrev.Name = "btnPrev";
-            btnPrev.Text = "Previous";
-            btnPrev.Location = new Point(95, 9);
-            btnPrev.Size = new Size(70, 30);
-            btnPrev.Click += new EventHandler(btnPrev_Click);
-
-            lblPageInfo.Name = "lblPageInfo";
-            lblPageInfo.Text = "Page 1 / 1";
-            lblPageInfo.Location = new Point(180, 14);
-            lblPageInfo.Size = new Size(150, 25);
-
-            btnNext.Name = "btnNext";
-            btnNext.Text = "Next";
-            btnNext.Location = new Point(340, 9);
-            btnNext.Size = new Size(70, 30);
-            btnNext.Click += new EventHandler(btnNext_Click);
-
-            btnLast.Name = "btnLast";
-            btnLast.Text = "Last";
-            btnLast.Location = new Point(420, 9);
-            btnLast.Size = new Size(70, 30);
-            btnLast.Click += new EventHandler(btnLast_Click);
-
-            lblTotal.Name = "lblTotal";
-            lblTotal.Text = "0 records";
-            lblTotal.Location = new Point(510, 14);
-            lblTotal.Size = new Size(400, 25);
-
-            pnlBottom.Controls.Add(btnFirst);
-            pnlBottom.Controls.Add(btnPrev);
-            pnlBottom.Controls.Add(lblPageInfo);
-            pnlBottom.Controls.Add(btnNext);
-            pnlBottom.Controls.Add(btnLast);
-            pnlBottom.Controls.Add(lblTotal);
-
-            // ---------- Center data area ----------
-            dgvData.Name = "dgvData";
-            dgvData.Dock = DockStyle.Fill;
-            dgvData.ReadOnly = true;
-            dgvData.AllowUserToAddRows = false;
-            dgvData.AllowUserToDeleteRows = false;
-            dgvData.AllowUserToResizeRows = false;
-            dgvData.MultiSelect = false;
-            dgvData.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dgvData.RowHeadersVisible = false;
-            dgvData.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            dgvData.BackgroundColor = Color.White;
-
-            // [2026-09-10] Instruction: make the column header row taller.
-            // [Mechanism] ColumnHeadersHeightSizeMode defaults to EnableResizing, so the row height is computed
-            //   by the system from the font (about 23px at this form's 10F size, which looks cramped with text
-            //   touching the edges); switching to DisableResizing + a fixed 40px makes the header row height
-            //   independent of font/DPI changes.
-            // [Boundary] Affects only the header row; data row height and column widths are unchanged
-            //   (AutoSizeColumnsMode=Fill is unaffected).
-            dgvData.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            dgvData.ColumnHeadersHeight = 40;
-
-            // Control add order: WinForms lays out Dock in reverse z-order (the last added claims the edge first),
-            // so the order must be Fill area -> bottom bar -> filter bar -> reminder bar to keep the reminder at the very top.
-            this.Controls.Add(dgvData);
-            this.Controls.Add(pnlBottom);
-            this.Controls.Add(pnlTop);
-            this.Controls.Add(pnlTip);
-
-            this.Load += new EventHandler(DataViewForm_Load);
+            pnlBottom.Location = new Point(0, 801);
+            pnlBottom.Name = "pnlBottom";
+            pnlBottom.Size = new Size(1443, 48);
+            pnlBottom.TabIndex = 0;
+            // 
+            // DataViewForm
+            // 
+            ClientSize = new Size(1443, 849);
+            Controls.Add(pnlBottom);
+            Controls.Add(pnlTop);
+            Controls.Add(pnlTip);
+            Font = new Font("Microsoft YaHei UI", 10F);
+            MinimumSize = new Size(1020, 540);
+            Name = "DataViewForm";
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "Data View";
+            Load += DataViewForm_Load;
+            pnlTip.ResumeLayout(false);
+            pnlTop.ResumeLayout(false);
+            ResumeLayout(false);
         }
 
         // ============================================================
