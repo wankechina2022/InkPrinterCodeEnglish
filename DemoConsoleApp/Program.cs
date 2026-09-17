@@ -16,11 +16,11 @@ using DominoA200Sdk.Models;
 //   1. Start DominoMockServer in one terminal.
 //   2. Run DemoConsoleApp in another.
 //
-// Options:  DemoConsoleApp [host] [port]     (defaults: 127.0.0.1 8001)
+// Options:  DemoConsoleApp [host] [port]     (defaults: 127.0.0.1 7000)
 // ============================================================
 
 string host = args.Length > 0 ? args[0] : "127.0.0.1";
-int port = args.Length > 1 && int.TryParse(args[1], out int parsedPort) ? parsedPort : 8001;
+int port = args.Length > 1 && int.TryParse(args[1], out int parsedPort) ? parsedPort : 7000;
 
 Console.WriteLine("==============================================================");
 Console.WriteLine("  Domino A200+ Codenet SDK — Console Demo");

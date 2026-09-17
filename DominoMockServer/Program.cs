@@ -7,11 +7,11 @@ using DominoMockServer;
 // developed and demonstrated without physical hardware.
 //
 // Usage:  DominoMockServer [port] [--quiet]
-//   port      TCP port to listen on (default 8001)
+//   port      TCP port to listen on (default 7000)
 //   --quiet   suppress the traffic log
 // ============================================================
 
-int port = 8001;
+int port = 7000;
 bool quiet = false;
 
 foreach (string arg in args)

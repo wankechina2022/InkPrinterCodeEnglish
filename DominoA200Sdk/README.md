@@ -9,7 +9,7 @@ automatic reconnect — behind a small async API.
 using DominoA200Sdk;
 using DominoA200Sdk.Models;
 
-using DominoA200Client printer = new DominoA200Client("192.168.1.50", 8001, autoReconnect: true);
+using DominoA200Client printer = new DominoA200Client("192.168.1.50", 7000, autoReconnect: true);
 
 printer.OnJobCompleted += (sender, args) =>
     Console.WriteLine($"printed {args.CodeValue} ({args.JobId})");
@@ -107,7 +107,7 @@ using DominoA200Sdk.Models;
 // the FIFO mirror and the state machine. Create it once and reuse it.
 using DominoA200Client printer = new DominoA200Client(
     host:              "192.168.1.50",   // printer IP or host name (required)
-    port:              8001,             // Codenet TCP port
+    port:              7000,             // Codenet TCP port
     responseTimeoutMs: 3000,             // wait for 0x06 / 0x15 before timing out
     connectTimeoutMs:  5000,
     autoReconnect:     true,             // recover from a lost link in the background
@@ -150,6 +150,46 @@ printer prints silently, never sending a completion event.
 
 ---
 
+## Calling methods (public API)
+
+Everything the caller touches. The SDK owns the socket, receive thread, FIFO mirror
+and state machine; you drive it through these members only.
+
+**Constructor** — `new DominoA200Client(host, port = 7000, responseTimeoutMs = 3000,
+connectTimeoutMs = 5000, autoReconnect = false, reconnectDelayMs = 2000)`.
+
+**Methods**
+
+| Method | Returns | What it does |
+|---|---|---|
+| `ConnectAsync(CancellationToken)` | `Task` | Opens TCP to `port` (no 700-port pre-reset, nothing is ever sent to a control port), runs the handshake (print-signal setup `1B 49 31 32 04` + clear queues) and starts the receive loop. |
+| `SendPrintJobAsync(PrintJob, ct)` | `Task<string>` | Frames and sends one code. On `0x06` ACK it records the job in the FIFO mirror and returns the generated `JobId`. On `0x15` NAK it throws `PrinterNackException` (queue full). |
+| `GetFifoQueueCountAsync(ct)` | `Task<int>` | Returns the **client-side mirror count**; also sends the depth query as best-effort (the printer reply, if any, is ignored). |
+| `GetStatus()` | `PrinterStatus` | Synchronous snapshot: `IsConnected`, `FifoQueueCount`, `StateText`. |
+| `DisconnectAsync()` | `Task` | Forced close — `Shutdown(Both)` → `LingerOption(true, 0)` → `Close` (RST), identical to the field `TcpPrinterConnection`. |
+| `Dispose()` | `void` | Releases everything; prefer `using`. |
+
+**Properties / diagnostics**
+
+| Member | Type | Note |
+|---|---|---|
+| `IsConnected` | `bool` | Transport up. |
+| `State` | `PrinterState` | `Disconnected \| Idle \| Printing \| Alarm`. |
+| `Host` / `Port` | `string` / `int` | Configured endpoint. |
+| `TrafficLogger` | `Action<string>?` | Raw TX/RX hex per line; `null` to disable. |
+
+**Events** (all fire on background threads — marshal to the UI thread before touching controls)
+
+| Event | Args | Fires when |
+|---|---|---|
+| `OnConnected` | — | Link established (your thread or the reconnect thread). |
+| `OnDisconnected` | — | Link torn down. |
+| `OnJobCompleted` | `PrinterEventArgs` (`JobId`, `CodeValue`, `CompletedAt`) | A bare `0x32` arrival is correlated to the **oldest** mirrored job (see below). |
+| `OnStateChanged` | `PrinterStateChangedEventArgs` | High-level state transition. |
+| `OnReconnecting` | — | A lost link is about to be retried (`autoReconnect` only). |
+
+---
+
 ## Lifecycle and threading rules
 
 The SDK is safe to call from several threads, but a few rules make the difference
@@ -173,7 +213,7 @@ between "works" and "mysteriously drops jobs":
 | Parameter | Default | Meaning |
 |---|---|---|
 | `host` | — | Printer host name or IP. Required, non-blank. |
-| `port` | `8001` | Codenet TCP port. |
+| `port` | `7000` | Codenet TCP port. |
 | `responseTimeoutMs` | `3000` | How long to wait for `0x06` / `0x15`. Also applied as the socket's send/receive timeout. |
 | `connectTimeoutMs` | `5000` | TCP connect timeout. |
 | `autoReconnect` | `false` | Background reconnect after a lost link. |
@@ -224,6 +264,65 @@ request/response wrapper:
 
 Repeated or uncorrelated `0x32` bytes (for example after a reconnect) still raise
 `OnJobCompleted`, but with an empty `JobId` / `CodeValue`, and log a warning.
+
+### How `0x32` reaches the caller — and what to do with it
+
+The wire byte `0x32` is a **single-byte, payload-less** event. It is consumed by the
+receive splitter (`ProcessBytes`) and routed to `RaiseJobCompleted()`, which:
+
+1. dequeues the **oldest** entry from the client-side FIFO mirror;
+2. builds `PrinterEventArgs(JobId, CodeValue, CompletedAt)` from *that mirror entry* —
+   the printer never tells us which code finished, so those values are SDK-inferred;
+3. invokes `OnJobCompleted` on the **receive thread** — an asynchronous *push*, not a
+   return value of `SendPrintJobAsync`.
+
+So the event is a **notification that a slot freed up**, not a value your `await` hands
+back. The real "can I send again?" signal is the mirror count dropping by one — which
+is exactly what `GetFifoQueueCountAsync()` reads.
+
+### Recommended backpressure pattern
+
+The SDK does **not** auto-throttle: `SendPrintJobAsync` will fill the 3-deep queue and
+then return `PrinterNackException` on the fourth. To get the field-app rhythm
+("keep sending, pause on `0x15`, resume on `0x32`"), gate the submission with a
+capacity-3 semaphore released by the completion event:
+
+```csharp
+using DominoA200Client printer = new("192.168.1.50", 7000, autoReconnect: true);
+
+// Gate capacity == printer FIFO capacity (3). Start full; each 0x32 releases one slot.
+var gate = new SemaphoreSlim(3, 3);
+
+printer.OnJobCompleted += (s, e) =>
+{
+    Console.WriteLine($"done {e.CodeValue} ({e.JobId})");
+    gate.Release();                       // 0x32 arrived -> a slot is free again
+};
+
+await printer.ConnectAsync();
+
+int i = 0;
+while (true)
+{
+    await gate.WaitAsync();              // blocks when all 3 slots are in flight
+    try
+    {
+        await printer.SendPrintJobAsync(
+            new PrintJob(DateTime.Now.ToString("yyyy-MM-dd"),
+                         "ABC" + (++i).ToString("D6")));
+    }
+    catch (PrinterNackException)          // 0x15 -- full (rare race); give the slot back
+    {
+        gate.Release();
+        await Task.Delay(100);
+    }
+}
+```
+
+This keeps up to three jobs in flight, pauses on overflow, and resumes the moment a
+`0x32` lands — with the SDK's FIFO mirror as the authoritative in-flight counter.
+`DemoConsoleApp` ships the simpler fixed-batch version; the loop above is the pattern to
+copy for continuous production printing.
 
 ---
 

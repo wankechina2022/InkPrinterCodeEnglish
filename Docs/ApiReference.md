@@ -15,7 +15,7 @@ The single entry point. Create one per printer endpoint and reuse it.
 ```csharp
 public DominoA200Client(
     string host,
-    int port = 8001,
+    int port = 7000,
     int responseTimeoutMs = 3000,
     int connectTimeoutMs = 5000,
     bool autoReconnect = false,
@@ -25,7 +25,7 @@ public DominoA200Client(
 | Parameter            | Default | Description                                                          |
 |----------------------|---------|----------------------------------------------------------------------|
 | `host`               | —       | Printer host name or IP. Required; must not be null or whitespace.    |
-| `port`               | `8001`  | Codenet TCP port.                                                    |
+| `port`               | `7000`  | Codenet TCP port.                                                    |
 | `responseTimeoutMs`  | `3000`  | How long to wait for a response byte before declaring a timeout.      |
 | `connectTimeoutMs`   | `5000`  | TCP connect timeout.                                                  |
 | `autoReconnect`      | `false` | When true, a lost link starts a background reconnect loop.            |
@@ -239,7 +239,7 @@ command was written but never answered, which the client treats as a liveness fa
 The simulator, for development and demonstration without hardware.
 
 ```csharp
-var printer = new MockPrinter(port: 8001, printDurationMs: 1500, quiet: false);
+var printer = new MockPrinter(port: 7000, printDurationMs: 1500, quiet: false);
 printer.LogLine += (sender, line) => Console.WriteLine(line);
 printer.Start();
 // ...

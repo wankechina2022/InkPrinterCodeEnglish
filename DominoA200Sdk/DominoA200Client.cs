@@ -20,7 +20,7 @@ namespace DominoA200Sdk;
 /// <para>
 /// <b>Typical use.</b>
 /// <code>
-/// var printer = new DominoA200Client("127.0.0.1", 8001);
+/// var printer = new DominoA200Client("127.0.0.1", 7000);
 /// await printer.ConnectAsync();
 ///
 /// printer.OnJobCompleted += (sender, args) =&gt;
@@ -139,7 +139,7 @@ public sealed class DominoA200Client : IDisposable
     /// <see cref="ConnectAsync"/> is called.
     /// </summary>
     /// <param name="host">Printer host or IP address.</param>
-    /// <param name="port">Codenet TCP port. The A200+ listens on 8001 in this demo.</param>
+    /// <param name="port">Codenet TCP port. The A200+ listens on 7000 in this demo.</param>
     /// <param name="responseTimeoutMs">How long to wait for an ACK/NAK before treating
     /// the command as timed out. Defaults to 3000 ms.</param>
     /// <param name="connectTimeoutMs">Connect timeout. Defaults to 5000 ms.</param>
@@ -149,7 +149,7 @@ public sealed class DominoA200Client : IDisposable
     /// <exception cref="ArgumentException">Thrown when <paramref name="host"/> is null or whitespace.</exception>
     public DominoA200Client(
         string host,
-        int port = 8001,
+        int port = 7000,
         int responseTimeoutMs = 3000,
         int connectTimeoutMs = 5000,
         bool autoReconnect = false,
@@ -237,6 +237,10 @@ public sealed class DominoA200Client : IDisposable
 
         try
         {
+            // [2026-09-17] Connect straight to the CodeNet data port (default 7000, the
+            // real printer's port). We intentionally do NOT send the legacy 700-port
+            // pre-reset command: the field-tested InkPrinterCode has that path disabled
+            // (resetPort = 0), so the SDK must not write anything to port 700 either.
             TcpClient client = new TcpClient();
 
             Task connectTask = client.ConnectAsync(_host, _port);
@@ -855,9 +859,52 @@ public sealed class DominoA200Client : IDisposable
 
         lock (_ioLock)
         {
+            // [2026-09-17] Forced RST close, matching the field-tested InkPrinterCode
+            // (TcpPrinterConnection.Close). The A200+ firmware does not release the
+            // connection slot on a plain FIN, so repeated reconnects pile up and the
+            // printer reports "connection count reached". We therefore:
+            //   (1) Shutdown(SocketShutdown.Both) — send a polite FIN for notification;
+            //   (2) LingerOption(true, 0) — mark the socket so the next close issues an
+            //       RST instead of a FIN (documented Windows behavior; no TIME_WAIT);
+            //   (3) close the stream then the client — the RST goes out here.
+            // The LingerState MUST be set before disposing the stream, because
+            // NetworkStream.Dispose releases the underlying socket.
+            TcpClient? tcpClient = _tcpClient;
+            NetworkStream? stream = _stream;
+            _tcpClient = null;
+            _stream = null;
+
+            Socket? socket = tcpClient?.Client;
+            if (socket != null)
+            {
+                // (1) Polite FIN; already-dead sockets throw here, ignore it.
+                try
+                {
+                    if (socket.Connected)
+                    {
+                        socket.Shutdown(SocketShutdown.Both);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Socket already dead/disposed; no notification needed.
+                }
+
+                // (2) Mark for RST on the subsequent close (degrades to FIN if this fails).
+                try
+                {
+                    socket.LingerState = new LingerOption(true, 0);
+                }
+                catch (Exception)
+                {
+                    // If it fails, a normal FIN close is no worse than before.
+                }
+            }
+
+            // (3) Close: stream first, then client; RST is emitted here.
             try
             {
-                _stream?.Dispose();
+                stream?.Dispose();
             }
             catch (Exception)
             {
@@ -866,15 +913,12 @@ public sealed class DominoA200Client : IDisposable
 
             try
             {
-                _tcpClient?.Close();
+                tcpClient?.Close();
             }
             catch (Exception)
             {
                 // Same rationale: a dead socket may throw while closing.
             }
-
-            _stream = null;
-            _tcpClient = null;
         }
 
         // [2026-09-16] Make the silent mirror reset observable (F6): dropping in-flight

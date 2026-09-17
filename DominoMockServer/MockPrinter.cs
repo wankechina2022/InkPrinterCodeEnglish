@@ -51,7 +51,7 @@ public sealed class MockPrinter : IDisposable
     /// <param name="printDurationMs">How long the simulated print takes before the
     /// <c>0x32</c> completion event is pushed. Defaults to 1500 ms.</param>
     /// <param name="quiet">When true, suppresses console output. Defaults to false.</param>
-    public MockPrinter(int port = 8001, int printDurationMs = 1500, bool quiet = false)
+    public MockPrinter(int port = 7000, int printDurationMs = 1500, bool quiet = false)
     {
         _port = port;
         _printDurationMs = printDurationMs > 0 ? printDurationMs : 1500;

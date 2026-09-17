@@ -5,7 +5,7 @@ with a **mock simulator**, an **automated test harness**, and a **console demo**
 the whole thing can be evaluated end to end without a physical printer.
 
 ```
-┌──────────────┐   TCP 8001    ┌──────────────────┐
+┌──────────────┐   TCP 7000    ┌──────────────────┐
 │   Your app   │ ────────────► │  A200+ printer   │
 │  + this SDK  │ ◄──────────── │  (or the mock)   │
 └──────────────┘   0x06/0x32   └──────────────────┘
@@ -73,7 +73,7 @@ dotnet run --project DominoMockServer
 ==============================================================
   Domino A200+ Codenet Mock Simulator
 --------------------------------------------------------------
-Starting mock printer on 127.0.0.1:8001 ...
+Starting mock printer on 127.0.0.1:7000 ...
 Emulated limits: FIFO capacity 3, print time 1500 ms.
 ```
 
@@ -114,7 +114,7 @@ down — nothing to start manually.
 Add a project or package reference to `DominoA200Sdk`, then:
 
 ```csharp
-var printer = new DominoA200Client("127.0.0.1", 8001);
+var printer = new DominoA200Client("127.0.0.1", 7000);
 await printer.ConnectAsync();
 
 // Subscribe before submitting, so a fast completion is not missed.
