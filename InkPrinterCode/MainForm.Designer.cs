@@ -59,7 +59,7 @@
             btnImportData.Location = new Point(52, 44);
             btnImportData.Margin = new Padding(5, 4, 5, 4);
             btnImportData.Name = "btnImportData";
-            btnImportData.Size = new Size(176, 61);
+            btnImportData.Size = new Size(305, 61);
             btnImportData.TabIndex = 0;
             btnImportData.Text = "Data Import";
             btnImportData.UseVisualStyleBackColor = true;
@@ -298,10 +298,10 @@
             // 
             lblImportTip.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             lblImportTip.ForeColor = Color.FromArgb(192, 0, 0);
-            lblImportTip.Location = new Point(237, 44);
+            lblImportTip.Location = new Point(377, 45);
             lblImportTip.Margin = new Padding(5, 0, 5, 0);
             lblImportTip.Name = "lblImportTip";
-            lblImportTip.Size = new Size(731, 96);
+            lblImportTip.Size = new Size(600, 96);
             lblImportTip.TabIndex = 9;
             lblImportTip.Text = "[Import Reminder] In Excel, set the code column to \"Text\";\r\ncodes over 15 digits lose trailing digits if stored as numbers,\r\nand the loss cannot be undone; delete and re-import the data!";
             // 

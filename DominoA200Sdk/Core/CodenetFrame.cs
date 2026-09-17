@@ -235,12 +235,12 @@ public static class CodenetFrame
             return false;
         }
 
-        // [2026-09-17] OE frames declare their own payload length (F11). Trusting the
-        // first four payload digits blindly is fragile: a corrupt length, or a future
-        // command that reuses the "OE" prefix with a different layout, would produce a
-        // frame boundary that is silently wrong. Cross-check the declared length against
-        // the bytes actually present and only trust the terminator we scanned when they
-        // agree; otherwise resynchronise on this EOT.
+        // [2026-09-17] OE frames declare the length of their code text (F11). Trusting
+        // the first four payload digits blindly is fragile: a corrupt length, or a
+        // future command that reuses the "OE" prefix with a different layout, would
+        // produce a frame boundary that is silently wrong. Cross-check the declared
+        // length against the bytes actually present and only trust the terminator we
+        // scanned when they agree.
         if (buffer[1] == 0x4F && buffer[2] == 0x45)
         {
             int declaredLength;
@@ -253,15 +253,25 @@ public static class CodenetFrame
                 return true;
             }
 
-            if (buffer.Count < 3 + declaredLength + 1 || buffer[3 + declaredLength] != EOT)
+            // Layout: 1B 4F 45 | 4 length digits | <declaredLength> code bytes | 04.
+            // The declared value covers ONLY the code text, so the terminator sits at
+            // 3 + 4 + declaredLength.
+            int expectedEnd = 3 + 4 + declaredLength;
+
+            if (buffer.Count <= expectedEnd || buffer[expectedEnd] != EOT)
             {
-                // The declared length does not match the terminating byte. Report an
+                // The declared length does not line up with a terminator. Report an
                 // incomplete frame and let the caller wait for more bytes rather than
                 // consuming a frame whose payload we cannot trust.
                 return false;
             }
 
-            endIndex = 3 + declaredLength;
+            int terminatorIndex = expectedEnd;
+
+            // Only a terminator at the scanned position is unambiguous. If a stray 0x04
+            // appears inside the code text the scanned and declared boundaries disagree;
+            // in that case trust the declared length, which the builder guarantees.
+            endIndex = terminatorIndex;
         }
 
         frameBytes = new byte[endIndex + 1];
@@ -290,7 +300,8 @@ public static class CodenetFrame
     {
         declaredLength = 0;
 
-        if (buffer.Count < 7 || endIndex < 7)
+        // The four length digits must be present before the frame can be measured.
+        if (buffer.Count < 8 || endIndex < 8)
         {
             return false;
         }
@@ -307,9 +318,10 @@ public static class CodenetFrame
             value = value * 10 + digit;
         }
 
-        // The declared length covers the four length digits themselves plus the code
-        // text, so a plausible frame is at least 4 payload bytes long.
-        if (value < 4)
+        // A print job always carries at least one code byte. A declared length of zero
+        // (as in the fixed-layout "0000X" clear-queue literal) therefore means there is
+        // no length field to trust here.
+        if (value < 1)
         {
             return false;
         }

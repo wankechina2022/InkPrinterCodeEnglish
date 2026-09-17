@@ -496,11 +496,13 @@ public sealed class MockPrinter : IDisposable
                 return buffer[4] == EOT ? 5 : 0;
             }
 
-            // OE family: 1B 4F 45 <4-digit length> <payload> 04.
+            // OE family: 1B 4F 45 <4-digit length> <code text> 04.
+            // The declared value is the length of the CODE TEXT only, so the frame is
+            // 3 header + 4 length digits + declared + 1 terminator bytes long.
             if (buffer[1] == 0x4F && buffer[2] == 0x45)
             {
                 int declared = -1;
-                if (buffer.Count >= 7)
+                if (buffer.Count >= 8)
                 {
                     int value = 0;
                     bool allDigits = true;
@@ -517,7 +519,7 @@ public sealed class MockPrinter : IDisposable
                         value = value * 10 + digit;
                     }
 
-                    if (allDigits && value >= 4)
+                    if (allDigits && value >= 1)
                     {
                         declared = value;
                     }
@@ -525,7 +527,7 @@ public sealed class MockPrinter : IDisposable
 
                 if (declared >= 0)
                 {
-                    int total = 3 + declared + 1;
+                    int total = 3 + 4 + declared + 1;
                     if (buffer.Count < total)
                     {
                         return 0;
