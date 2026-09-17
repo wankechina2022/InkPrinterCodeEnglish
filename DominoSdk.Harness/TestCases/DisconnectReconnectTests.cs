@@ -107,10 +107,15 @@ public sealed class DisconnectReconnectTests
     [Fact]
     public async Task AutoReconnect_RecoversAfterServerRestart()
     {
-        int port = FindFreePort();
-
+        // [2026-09-17] The simulator is started on a port the OS picks, and the bound
+        // port is read back afterwards. The previous form asked the OS for a free port,
+        // closed that probe, and only then let the simulator bind - leaving a window in
+        // which the port belonged to nobody and could be taken by another process. On
+        // Windows SO_REUSEADDR makes that takeover silent, and the client would then
+        // connect to the wrong listener and never be answered. Delegating the choice to
+        // MockPrinter removes the window entirely.
         DominoMockServer.MockPrinter simulator =
-            new DominoMockServer.MockPrinter(port, printDurationMs: 400, quiet: true);
+            new DominoMockServer.MockPrinter(0, printDurationMs: 400, quiet: true);
 
         // [2026-09-17] Diagnostics: record BOTH sides of the wire so a failure says
         // which side went quiet. The client already exposes TrafficLogger and the
@@ -128,6 +133,8 @@ public sealed class DisconnectReconnectTests
         simulator.LogLine += (sender, line) => record("SIM  " + line);
 
         simulator.Start();
+
+        int port = simulator.Port;
 
         using DominoA200Client client = new DominoA200Client(
             "127.0.0.1",
@@ -173,7 +180,19 @@ public sealed class DisconnectReconnectTests
                 "The client should have raised OnDisconnected.");
 
             // Bring the simulator back on the SAME port so recovery can succeed.
-            simulator.Start();
+            //
+            // [2026-09-17] Stop and Start happen inside the one call below, with no await
+            // between them. That is the point: the failure this test was hitting was not
+            // "the reconnect logic is broken" but "the port was unowned long enough for
+            // another process to take it, and the client then reconnected to a listener
+            // that never answers". Keeping teardown and rebind adjacent shrinks that
+            // window to nothing, and the Start overload throws if the port could not be
+            // reclaimed, so a takeover can no longer masquerade as a reconnect failure.
+            simulator.Start(port);
+
+            Assert.True(simulator.Port == port,
+                "The simulator should have reclaimed port " + port.ToString()
+                + " but is listening on " + simulator.Port.ToString() + ".");
 
             // [2026-09-17] Poll for the actual reconnection rather than sleeping a fixed
             // interval, so the assertion is event-driven.

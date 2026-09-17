@@ -92,7 +92,20 @@ public sealed class MockPrinter : IDisposable
     /// <summary>Port the server is bound to.</summary>
     public int Port
     {
-        get { return _port; }
+        get
+        {
+            // [2026-09-17] Report the endpoint actually bound, not the requested value.
+            // With a fixed port these are the same; with port 0 (let the OS choose) the
+            // requested value is 0, which would tell a caller nothing. Reading the bound
+            // endpoint also makes a silent mis-bind impossible to miss.
+            TcpListener? listener = _listener;
+            if (listener != null && listener.LocalEndpoint is IPEndPoint endpoint)
+            {
+                return endpoint.Port;
+            }
+
+            return _port;
+        }
     }
 
     /// <summary>
@@ -101,20 +114,47 @@ public sealed class MockPrinter : IDisposable
     /// </summary>
     public void Start()
     {
+        Start(_port);
+    }
+
+    /// <summary>
+    /// Start listening on a specific port, rebinding if the server was already running.
+    ///
+    /// <para>
+    /// <b>Why a rebinding overload exists.</b> A restart on the same port used to be
+    /// written as <c>Stop(); ...gap...; Start();</c> at the call site. The gap - however
+    /// short - is a window in which the port belongs to nobody, and on Windows
+    /// <c>SO_REUSEADDR</c> lets another process take it and keep it. A client connecting
+    /// during that window reaches the wrong listener, gets no answer, and the recovery
+    /// this simulator is supposed to demonstrate never happens. Doing the teardown and
+    /// the new bind inside one call removes the window from the call site's control.
+    /// </para>
+    /// </summary>
+    /// <param name="port">Port to listen on. Use 0 to let the OS pick one; read the
+    /// result back from <see cref="Port"/>.</param>
+    public void Start(int port)
+    {
+        // Rebinding means the old listener must be gone first; Stop() is idempotent.
         if (_running)
         {
-            return;
+            Stop();
         }
 
-        _listener = new TcpListener(IPAddress.Loopback, _port);
+        TcpListener listener = new TcpListener(IPAddress.Loopback, port);
 
         // [2026-09-16] Allow the port to be reused immediately after a restart so a
         // quick re-run of the mock does not hit TIME_WAIT "address already in use"
         // (F9-d). Both options must be set before the socket binds.
+        //
+        // [2026-09-17] Caveat discovered while diagnosing the reconnect test: on Windows
+        // SO_REUSEADDR also permits binding a port another process is already listening
+        // on, so this pair is what makes a silent takeover possible. It is kept for the
+        // restart case, but note that it is not what makes a restart safe - the absence
+        // of a gap between Stop and Start is (see the overload's remarks).
         try
         {
-            _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _listener.Server.ExclusiveAddressUse = false;
+            listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            listener.Server.ExclusiveAddressUse = false;
         }
         catch (SocketException)
         {
@@ -122,7 +162,29 @@ public sealed class MockPrinter : IDisposable
             // behaviour rather than failing to start.
         }
 
-        _listener.Start();
+        listener.Start();
+
+        // [2026-09-17] Validate the bind instead of assuming it. If the OS handed the
+        // port to somebody else, this throws here - at the place that can explain
+        // itself - rather than surfacing later as "the client connects but never gets
+        // an answer", which is very hard to read back to a port conflict.
+        if (port != 0 && listener.LocalEndpoint is IPEndPoint bound && bound.Port != port)
+        {
+            try
+            {
+                listener.Stop();
+            }
+            catch (Exception)
+            {
+                // Best-effort teardown of the listener we are rejecting.
+            }
+
+            throw new InvalidOperationException(
+                "Mock A200+ asked for port " + port.ToString() + " but the OS bound "
+                + bound.Port.ToString() + "; another process holds the port.");
+        }
+
+        _listener = listener;
         _running = true;
 
         Thread acceptThread = new Thread(AcceptLoop)
@@ -136,7 +198,7 @@ public sealed class MockPrinter : IDisposable
         _acceptThread = acceptThread;
         acceptThread.Start();
 
-        Log("LISTEN", "Mock A200+ listening on 127.0.0.1:" + _port.ToString());
+        Log("LISTEN", "Mock A200+ listening on 127.0.0.1:" + Port.ToString());
     }
 
     /// <summary>Stop listening and drop all sessions.</summary>
