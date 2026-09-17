@@ -49,11 +49,15 @@ trademark or documentation — see [LICENSE](LICENSE) for the full statement.
 
 | Project | Type | Purpose |
 |---|---|---|
-| **`DominoA200Sdk`** | Class library | The client you reference. Hides TCP, framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. |
+| **`DominoA200Sdk`** | Class library | The client you reference. Hides TCP, framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. Dependency-free, so it stands alone — see **[DominoA200Sdk/README.md](DominoA200Sdk/README.md)** for how to reference and use it. |
 | **`DominoMockServer`** | Console app | Simulates an A200+ over TCP. No printer required. Logs all traffic as hex. |
 | **`DemoConsoleApp`** | Console app | A short end-to-end demonstration of the SDK against the mock. |
 | **`DominoSdk.Harness`** | xUnit project | Automated tests that start the mock themselves and assert on protocol behaviour. |
-| **`InkPrinterCode`** | WinForms app | The host application this SDK work originated from. |
+| **`InkPrinterCode`** | WinForms app | The host application this SDK work originated from. Independent of the library: neither project references the other. |
+
+Only `DominoA200Sdk` is reusable elsewhere; the other four exist to demonstrate, test
+and host it. `InkPrinterCode` carries its own copy of the protocol/transport layer, so
+the SDK and the host can be evolved (or shipped) separately.
 
 ---
 
@@ -192,6 +196,7 @@ InkPrinterCode/                    ← repository root = solution root
 │   └── ProtocolNotes.md           ← observed wire behaviour and byte examples
 ├── InkPrinterCode/                ← WinForms host application
 ├── DominoA200Sdk/                 ← the client library
+│   ├── README.md                  ← standalone usage guide (reference it, use it)
 │   ├── Core
 │   │   ├── CodenetFrame.cs
 │   │   ├── PrinterStateMachine.cs
