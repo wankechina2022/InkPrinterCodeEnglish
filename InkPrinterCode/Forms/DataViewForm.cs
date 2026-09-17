@@ -125,9 +125,14 @@ namespace InkPrinterCode.Forms
         }
 
         /// <summary>
-        /// UI layout
-        /// [Note] Controls are created by hand instead of using the designer -- the structure lives in a single
-        /// file, so layout changes do not require switching back and forth between designer and code.
+        /// UI layout (designer-compatible form)
+        /// [2026-09-17 fix] Opening this form in the VS designer regenerated InitializeComponent and
+        ///   silently dropped everything it could not round-trip from the old hand-written version:
+        ///   dgvData (never configured, never added to the form), 8 of the 10 filter-area controls,
+        ///   every paging control, and all button/checkbox event wiring. The method below rebuilds
+        ///   the complete original layout in designer style (field + property + Controls.Add + event
+        ///   wiring), so the designer can now round-trip it without data loss.
+        /// [Kept from the 2026-09-17 designer edit] ClientSize 1443x849 -- the enlarged window.
         /// </summary>
         private void InitializeComponent()
         {
@@ -140,10 +145,11 @@ namespace InkPrinterCode.Forms
             pnlBottom = new Panel();
             pnlTip.SuspendLayout();
             pnlTop.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)dgvData).BeginInit();
             SuspendLayout();
-            // 
+            //
             // pnlTip
-            // 
+            //
             pnlTip.BackColor = Color.FromArgb(255, 238, 238);
             pnlTip.Controls.Add(lblTip);
             pnlTip.Dock = DockStyle.Top;
@@ -152,9 +158,10 @@ namespace InkPrinterCode.Forms
             pnlTip.Padding = new Padding(10, 4, 10, 4);
             pnlTip.Size = new Size(1443, 46);
             pnlTip.TabIndex = 2;
-            // 
+            //
             // lblTip
-            // 
+            //
+            lblTip.AutoSize = false;
             lblTip.Dock = DockStyle.Fill;
             lblTip.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
             lblTip.ForeColor = Color.FromArgb(192, 0, 0);
@@ -164,45 +171,219 @@ namespace InkPrinterCode.Forms
             lblTip.TabIndex = 0;
             lblTip.Text = resources.GetString("lblTip.Text");
             lblTip.TextAlign = ContentAlignment.MiddleLeft;
-            // 
+            //
             // pnlTop
-            // 
+            //
             pnlTop.Controls.Add(lblStatusTitle);
+            pnlTop.Controls.Add(cboStatus);
+            pnlTop.Controls.Add(chkTime);
+            pnlTop.Controls.Add(dtpStart);
             pnlTop.Controls.Add(lblTo);
+            pnlTop.Controls.Add(dtpEnd);
+            pnlTop.Controls.Add(chkIncludeNotPrinted);
+            pnlTop.Controls.Add(btnQuery);
+            pnlTop.Controls.Add(btnExport);
+            pnlTop.Controls.Add(btnDelete);
             pnlTop.Dock = DockStyle.Top;
             pnlTop.Location = new Point(0, 46);
             pnlTop.Name = "pnlTop";
             pnlTop.Padding = new Padding(10);
             pnlTop.Size = new Size(1443, 96);
             pnlTop.TabIndex = 1;
-            // 
+            //
             // lblStatusTitle
-            // 
+            //
             lblStatusTitle.Location = new Point(15, 22);
             lblStatusTitle.Name = "lblStatusTitle";
             lblStatusTitle.Size = new Size(50, 25);
             lblStatusTitle.TabIndex = 0;
             lblStatusTitle.Text = "Status:";
-            // 
+            //
+            // cboStatus
+            //
+            cboStatus.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStatus.DisplayMember = "Text";
+            cboStatus.Location = new Point(65, 18);
+            cboStatus.Name = "cboStatus";
+            cboStatus.Size = new Size(120, 28);
+            cboStatus.TabIndex = 1;
+            cboStatus.ValueMember = "Value";
+            //
+            // chkTime
+            //
+            chkTime.Checked = false;
+            chkTime.Location = new Point(205, 20);
+            chkTime.Name = "chkTime";
+            chkTime.Size = new Size(110, 25);
+            chkTime.TabIndex = 2;
+            chkTime.Text = "Filter by time";
+            chkTime.CheckedChanged += chkTime_CheckedChanged;
+            //
+            // dtpStart
+            //
+            dtpStart.CustomFormat = "yyyy-MM-dd HH:mm:ss";
+            dtpStart.Enabled = false;
+            dtpStart.Format = DateTimePickerFormat.Custom;
+            dtpStart.Location = new Point(325, 18);
+            dtpStart.Name = "dtpStart";
+            dtpStart.Size = new Size(180, 28);
+            dtpStart.TabIndex = 3;
+            //
             // lblTo
-            // 
+            //
             lblTo.Location = new Point(512, 22);
             lblTo.Name = "lblTo";
             lblTo.Size = new Size(25, 25);
-            lblTo.TabIndex = 1;
+            lblTo.TabIndex = 4;
             lblTo.Text = "to";
-            // 
+            //
+            // dtpEnd
+            //
+            dtpEnd.CustomFormat = "yyyy-MM-dd HH:mm:ss";
+            dtpEnd.Enabled = false;
+            dtpEnd.Format = DateTimePickerFormat.Custom;
+            dtpEnd.Location = new Point(542, 18);
+            dtpEnd.Name = "dtpEnd";
+            dtpEnd.Size = new Size(180, 28);
+            dtpEnd.TabIndex = 5;
+            //
+            // chkIncludeNotPrinted
+            // [2026-09-10] "Include NotPrinted" switch -- unchecked by default, NotPrinted data is
+            //   protected; only when checked can NotPrinted data be deleted (plus a second strong
+            //   confirmation in the click handler).
+            //
+            chkIncludeNotPrinted.Checked = false;
+            chkIncludeNotPrinted.ForeColor = Color.FromArgb(192, 0, 0);
+            chkIncludeNotPrinted.Location = new Point(15, 56);
+            chkIncludeNotPrinted.Name = "chkIncludeNotPrinted";
+            chkIncludeNotPrinted.Size = new Size(300, 25);
+            chkIncludeNotPrinted.TabIndex = 6;
+            chkIncludeNotPrinted.Text = "Delete NotPrinted data as well (for cleaning up bad imports)";
+            chkIncludeNotPrinted.CheckedChanged += chkIncludeNotPrinted_CheckedChanged;
+            //
+            // btnQuery
+            //
+            btnQuery.Location = new Point(735, 52);
+            btnQuery.Name = "btnQuery";
+            btnQuery.Size = new Size(85, 32);
+            btnQuery.TabIndex = 7;
+            btnQuery.Text = "Query";
+            btnQuery.Click += btnQuery_Click;
+            //
+            // btnExport
+            //
+            btnExport.Location = new Point(830, 52);
+            btnExport.Name = "btnExport";
+            btnExport.Size = new Size(85, 32);
+            btnExport.TabIndex = 8;
+            btnExport.Text = "Export Excel";
+            btnExport.Click += btnExport_Click;
+            //
+            // btnDelete
+            //
+            btnDelete.ForeColor = Color.Red;
+            btnDelete.Location = new Point(925, 52);
+            btnDelete.Name = "btnDelete";
+            btnDelete.Size = new Size(75, 32);
+            btnDelete.TabIndex = 9;
+            btnDelete.Text = "Delete";
+            btnDelete.Click += btnDelete_Click;
+            //
             // pnlBottom
-            // 
+            //
+            pnlBottom.Controls.Add(btnFirst);
+            pnlBottom.Controls.Add(btnPrev);
+            pnlBottom.Controls.Add(lblPageInfo);
+            pnlBottom.Controls.Add(btnNext);
+            pnlBottom.Controls.Add(btnLast);
+            pnlBottom.Controls.Add(lblTotal);
             pnlBottom.Dock = DockStyle.Bottom;
             pnlBottom.Location = new Point(0, 801);
             pnlBottom.Name = "pnlBottom";
             pnlBottom.Size = new Size(1443, 48);
             pnlBottom.TabIndex = 0;
-            // 
+            //
+            // btnFirst
+            //
+            btnFirst.Location = new Point(15, 9);
+            btnFirst.Name = "btnFirst";
+            btnFirst.Size = new Size(70, 30);
+            btnFirst.TabIndex = 0;
+            btnFirst.Text = "First";
+            btnFirst.Click += btnFirst_Click;
+            //
+            // btnPrev
+            //
+            btnPrev.Location = new Point(95, 9);
+            btnPrev.Name = "btnPrev";
+            btnPrev.Size = new Size(70, 30);
+            btnPrev.TabIndex = 1;
+            btnPrev.Text = "Previous";
+            btnPrev.Click += btnPrev_Click;
+            //
+            // lblPageInfo
+            //
+            lblPageInfo.Location = new Point(180, 14);
+            lblPageInfo.Name = "lblPageInfo";
+            lblPageInfo.Size = new Size(150, 25);
+            lblPageInfo.TabIndex = 2;
+            lblPageInfo.Text = "Page 1 / 1";
+            //
+            // btnNext
+            //
+            btnNext.Location = new Point(340, 9);
+            btnNext.Name = "btnNext";
+            btnNext.Size = new Size(70, 30);
+            btnNext.TabIndex = 3;
+            btnNext.Text = "Next";
+            btnNext.Click += btnNext_Click;
+            //
+            // btnLast
+            //
+            btnLast.Location = new Point(420, 9);
+            btnLast.Name = "btnLast";
+            btnLast.Size = new Size(70, 30);
+            btnLast.TabIndex = 4;
+            btnLast.Text = "Last";
+            btnLast.Click += btnLast_Click;
+            //
+            // lblTotal
+            //
+            lblTotal.Location = new Point(510, 14);
+            lblTotal.Name = "lblTotal";
+            lblTotal.Size = new Size(400, 25);
+            lblTotal.TabIndex = 5;
+            lblTotal.Text = "0 records";
+            //
+            // dgvData
+            //
+            // [2026-09-10] Header row height is decoupled from font/DPI: ColumnHeadersHeightSizeMode
+            //   defaults to EnableResizing (row height computed from the font, ~23px at 10F -- cramped);
+            //   DisableResizing + a fixed 40px pins the header height. Affects the header row only;
+            //   data row height and AutoSizeColumnsMode=Fill are untouched.
+            //
+            dgvData.AllowUserToAddRows = false;
+            dgvData.AllowUserToDeleteRows = false;
+            dgvData.AllowUserToResizeRows = false;
+            dgvData.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dgvData.BackgroundColor = Color.White;
+            dgvData.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+            dgvData.ColumnHeadersHeight = 40;
+            dgvData.Dock = DockStyle.Fill;
+            dgvData.MultiSelect = false;
+            dgvData.Name = "dgvData";
+            dgvData.ReadOnly = true;
+            dgvData.RowHeadersVisible = false;
+            dgvData.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            dgvData.TabIndex = 10;
+            //
             // DataViewForm
-            // 
+            // Control add order: WinForms lays out Dock in reverse z-order (the last added claims
+            // the edge first), so the order must be Fill area -> bottom bar -> filter bar -> tip bar
+            // to keep the reminder at the very top.
+            //
             ClientSize = new Size(1443, 849);
+            Controls.Add(dgvData);
             Controls.Add(pnlBottom);
             Controls.Add(pnlTop);
             Controls.Add(pnlTip);
@@ -214,6 +395,7 @@ namespace InkPrinterCode.Forms
             Load += DataViewForm_Load;
             pnlTip.ResumeLayout(false);
             pnlTop.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)dgvData).EndInit();
             ResumeLayout(false);
         }
 
