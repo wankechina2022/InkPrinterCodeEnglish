@@ -151,6 +151,10 @@ await printer.DisconnectAsync();
 
 - **TCP packet sticking** — coalesced and split reads are reassembled into frames.
 - **Frame encoding and framing** — headers, terminators and the 4-digit length field.
+- **Length-aware parsing** — an `OE` frame's declared length is cross-checked against the
+  actual terminator, so a corrupt length cannot silently truncate a code.
+- **Payload validation** — the code is checked *before* it reaches the wire (ASCII only,
+  at most 9999 characters, and free of the `0x04` terminator).
 - **Response handling** — waits for `0x06`, with a configurable timeout.
 - **Rejection handling** — a `0x15` becomes a `PrinterNackException`.
 - **Unsolicited completion events** — `0x32` is watched for continuously, independent
@@ -161,16 +165,40 @@ await printer.DisconnectAsync();
 
 | Type | Namespace | Role |
 |---|---|---|
-| `DominoA200Client` | `DominoA200Sdk` | The entry point. |
+| `DominoA200Client` | `DominoA200Sdk` | The entry point (TCP). |
+| `DominoA200SerialClient` | `DominoA200Sdk` | The entry point (RS232), same API. |
 | `PrintJob` | `DominoA200Sdk.Models` | A job to print. |
 | `PrinterStatus` | `DominoA200Sdk.Models` | A status snapshot. |
 | `PrinterEventArgs` | `DominoA200Sdk.Models` | Completion-event payload. |
 | `PrinterNackException` | `DominoA200Sdk.Exceptions` | Raised on `0x15`. |
 | `PrinterTimeoutException` | `DominoA200Sdk.Exceptions` | Raised on no response. |
 | `PrinterState` / `PrinterStateMachine` | `DominoA200Sdk.Core` | State tracking. |
-| `CodenetFrame` / `JobQueue` | `DominoA200Sdk.Core` | Framing and FIFO mirror. |
+| `CodenetFrame` / `JobQueue` | `DominoA200Sdk.Core` | Framing (with `ValidatePrintJobPayload`) and FIFO mirror. |
 
 Full detail: **[Docs/ApiReference.md](Docs/ApiReference.md)**
+
+---
+
+## The `OE` frame, byte by byte
+
+A print job is the only frame that carries a variable-length payload, and its length field
+is the easiest thing to get wrong:
+
+```
+1B 4F 45 30 30 32 30 32 30 32 36 2D 30 39 2D 31 37 20 41 42 43 30 30 30 30 30 31 04
+│        │        └──────────── 20 bytes of code text ────────────┘              │
+│        └─ "0020" = 20, the count of the code text ONLY                         │
+└─ 1B 4F 45 = ESC 'O' 'E'                                                       └─ 04
+```
+
+**The declared length counts the code text alone** — not the four length digits, not the
+terminator. So a 20-character code yields a 28-byte frame (`3 + 4 + 20 + 1`).
+
+Because the terminator is a plain byte with no escape mechanism, a code containing `0x04`
+would be cut short by any receiver that scans for the first terminator. The SDK refuses
+such a payload up front instead of losing codes on the line. The same goes for non-ASCII
+text and anything over 9999 characters. Full rules:
+**[DominoA200Sdk/README.md](DominoA200Sdk/README.md#job-payload-rules)**
 
 ---
 
@@ -239,7 +267,8 @@ InkPrinterCode/                    ← repository root = solution root
         ├── ConnectTests.cs
         ├── SendJobTests.cs
         ├── JobCompleteEventTests.cs
-        └── DisconnectReconnectTests.cs
+        ├── DisconnectReconnectTests.cs
+        └── FramingTests.cs        ← pure byte-level framing (no mock needed)
 ```
 
 ---
@@ -255,6 +284,7 @@ a human clicking buttons, the whole protocol path is asserted in code.
 | **Send job** | A job is acknowledged and queued; the fourth job is refused with `PrinterNackException`; empty code values are rejected client-side; payload formatting is correct. |
 | **Completion events** | `OnJobCompleted` fires after the print delay with the correlated job id; the FIFO count drops as events are consumed. |
 | **Disconnect / reconnect** | Disconnect raises its event once and updates state; repeated disconnect is idempotent; a fresh session works after disconnect and resets the mirror; the FIFO mirror reports capacity and clears correctly. |
+| **Framing** (no mock needed) | The length field counts the code text only; `0x04` in a payload is rejected while `0x1B` is allowed; non-ASCII and over-length codes throw; every frame type round-trips; a frame cut at **any** byte offset reassembles; a lying length field is refused rather than guessed; coalesced frames split in order; leading garbage is resynchronised. |
 
 ```bash
 dotnet test

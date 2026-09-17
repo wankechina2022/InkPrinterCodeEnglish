@@ -65,6 +65,7 @@ client's FIFO mirror and a generated job identifier is returned.
 | Exception                  | Raised when                                        |
 |----------------------------|----------------------------------------------------|
 | `ArgumentNullException`    | `job` is null.                                     |
+| `ArgumentException`        | The payload is empty, longer than 9999 characters, non-ASCII, or contains `0x04`. Thrown **before** anything is written. |
 | `InvalidOperationException`| The client is not connected.                       |
 | `PrinterNackException`     | The printer refused the job with `0x15`.            |
 | `PrinterTimeoutException`  | No answer arrived within `responseTimeoutMs`.      |
@@ -166,7 +167,10 @@ public PrintJob(string dateText, string codeValue)
 | `CodeValue`   | The code text to print. Must not be null or whitespace.            |
 | `ToPayload()` | Renders `"<date> <code>"`, or just the code when the date is empty.|
 
-Throws `ArgumentException` when `codeValue` is null, empty or whitespace.
+Throws `ArgumentException` when `codeValue` is null, empty or whitespace. The remaining
+payload rules (ASCII only, at most 9999 characters, no `0x04`) are enforced by
+`CodenetFrame.ValidatePrintJobPayload` when the job is submitted — see
+[`CodenetFrame`](#codenetframe-dominoa200sdkcore).
 
 ---
 
@@ -261,12 +265,42 @@ Static framing helpers.
 | Method                              | Description                                          |
 |-------------------------------------|------------------------------------------------------|
 | `BuildSignalSetupFrame()`           | Enables print-complete notification for head 1.      |
-| `BuildPrintJobFrame(codeValue)`     | Builds a send-cached-data frame for a code text.     |
+| `BuildPrintJobFrame(codeValue)`     | Builds a send-cached-data frame for a code text; validates first. |
+| `ValidatePrintJobPayload(codeValue)`| Throws `ArgumentException` if the code cannot be framed. |
 | `BuildFifoQueryFrame()`             | Builds the FIFO depth query.                         |
 | `BuildClearQueueFrame(queueIndex)`  | Builds a queue-clear frame; index 0-2.               |
 | `TryParseFrame(buffer, out frame)`  | Extracts a complete terminated frame from a buffer.  |
 | `ToHexString(data, length)`         | Renders bytes as spaced uppercase hex.               |
 | `ToHexByte(value)`                  | Renders one byte as two hex digits.                  |
+
+#### `void ValidatePrintJobPayload(string codeValue)`
+
+Verifies that `codeValue` can be carried inside an `OE` print-job frame, and throws if it
+cannot. Called by `BuildPrintJobFrame`, and by both transports *before* they write
+anything, so an invalid payload fails immediately as a caller error rather than costing an
+ACK round-trip.
+
+| Rejected | Reason |
+|---|---|
+| `null` or `""` | An `OE` frame with no code carries nothing to print. |
+| Length `> 9999` | The length field is four decimal digits. |
+| Any character `> 0x7F` | The printer template defines no other encoding. |
+| Any character `== 0x04` | It is the frame terminator; it would truncate the frame mid-payload. |
+
+All four raise `ArgumentException` naming the offending length or character. `0x1B` is
+**not** rejected — only the first byte of a frame is special.
+
+#### `bool TryParseFrame(List<byte> buffer, out byte[] frameBytes)`
+
+Extracts the first complete frame from `buffer` and removes nothing — the caller consumes
+`frameBytes.Length` bytes on success. Returns `false` when no complete frame is available
+yet.
+
+For frames whose header is `1B 4F 45` the declared length is read from the four following
+bytes and the terminator must sit at `3 + 4 + declared`; a mismatch returns `false`
+(need more bytes) instead of consuming a frame whose payload cannot be trusted. Frames
+that are not length-prefixed — the FIFO query (`00017`), the clear-queue literal
+(`0000` + index) and the signal-setup frame — fall back to the first scanned `0x04`.
 
 ---
 
@@ -307,6 +341,12 @@ printer.Stop();
 Emulated limits: FIFO capacity 3, print duration configurable (1500 ms by default),
 `0x15` on overflow, unsolicited `0x32` after each simulated print.
 
+`MockPrinter` measures incoming frames the same way the client parses them: an `OE` frame
+is bounded by its declared length (the terminator must sit at `3 + 4 + declared`), while
+the fixed-layout commands fall back to the first `0x04`. The mock therefore rejects the
+same malformed frames a real printer would, instead of silently accepting a lying length
+field.
+
 `MockFifoQueue` and `CodenetHandler` are public so the emulated admission rules and
 command grammar can be tested in isolation, without opening a socket.
 
@@ -325,6 +365,10 @@ emulated command grammar can be unit-tested without a socket.
 | `Log`                   | Optional sink (`Action<string>?`) for malformed-frame diagnostics.          |
 | `CommandKind` (enum)    | `Unknown`, `SignalSetup`, `FifoQuery`, `ClearQueue`, `PrintJob`.            |
 | `ParsedCommand`         | Parse result exposing `Kind`, `Payload` (print job) and `QueueIndex`.      |
+
+For a print job the four length digits must all be decimal **and** must match the payload
+length exactly; a frame that disagrees is rejected as malformed rather than accepted with
+an incorrect code, so the mock and the real printer fail the same inputs.
 
 ---
 

@@ -19,6 +19,11 @@ string jobId = await printer.SendPrintJobAsync(new PrintJob("2026-09-17", "ABC00
 await printer.DisconnectAsync();
 ```
 
+The code is validated before it reaches the transport: a null/blank value, more than 9999
+characters, a non-ASCII character, or the frame terminator `0x04` all throw
+`ArgumentException` immediately rather than producing a frame the printer cannot parse.
+See [Job payload rules](#job-payload-rules).
+
 > ⚠️ **Not the official Domino SDK.** The protocol was obtained by reverse engineering
 > captured network traffic; this library is an interoperability study published for
 > learning and technical verification. It is not affiliated with, endorsed by or
@@ -27,6 +32,27 @@ await printer.DisconnectAsync();
 >
 > **本协议为网络抓包逆向分析所得，本项目仅用于学习与技术验证，不得用于商业用途。**
 > Full statement: [../LICENSE](../LICENSE).
+
+---
+
+## Contents
+
+| Section | What's in it |
+|---|---|
+| [Can this be used on its own?](#can-this-be-used-on-its-own) | Dependencies and the five-project relationship. |
+| [Referencing it](#referencing-it) | Project reference, built assembly, local NuGet package. |
+| [Minimal working example](#minimal-working-example) | TCP, end to end. |
+| [RS232 serial transport](#rs232-serial-transport) | The same API over a COM port. |
+| [Calling methods (public API)](#calling-methods-public-api) | Every method, property and event. |
+| [Lifecycle and threading rules](#lifecycle-and-threading-rules) | The rules that separate "works" from "drops jobs". |
+| [Constructor parameters](#constructor-parameters-dominoa200client) | Defaults and meanings. |
+| [What throws, and what to do about it](#what-throws-and-what-to-do-about-it) | Exception-to-action table. |
+| [Job payload rules](#job-payload-rules) | Frame layout, the length field, and what a code may contain. |
+| [Length-aware framing](#length-aware-framing) | How `OE` frames are measured and validated. |
+| [FIFO mirror and `0x32` correlation](#fifo-mirror-and-0x32-correlation) | Backpressure and completion events. |
+| [Diagnostics](#diagnostics) | `TrafficLogger` and status snapshots. |
+| [Trying it without hardware](#trying-it-without-hardware) | Mock, demo and the framing test matrix. |
+| [Limits and known gaps](#limits-and-known-gaps) | What this SDK does **not** do. |
 
 ---
 
@@ -284,7 +310,7 @@ full signature is listed under [Calling methods](#calling-methods-public-api).
 | `PrinterTimeoutException` | No answer within `responseTimeoutMs`; also thrown when the write itself fails. Either way the SDK marks the link as lost first (auto-reconnect engages when enabled). | Check the cable/network, then reconnect. |
 | `InvalidOperationException` | `SendPrintJobAsync` / `GetFifoQueueCountAsync` called while not connected. | Call `ConnectAsync()` first; with auto-reconnect, wait for `OnConnected`. |
 | `SocketException`, `TimeoutException` | `ConnectAsync` could not reach the printer, or exceeded `connectTimeoutMs`. | Verify IP/port; a printer that reports "maximum connections reached" needs its old sockets to time out. |
-| `ArgumentException` / `ArgumentNullException` | Bad input: blank host; null job; code value null/blank, longer than 9999 characters, or containing non-ASCII characters. | Validate at the edge, before submitting. |
+| `ArgumentException` / `ArgumentNullException` | Bad input: blank host; null job; code value null/blank, longer than 9999 characters, containing non-ASCII characters, or containing the frame terminator `0x04`. Validated **before** anything reaches the transport — see [Job payload rules](#job-payload-rules). | Validate at the edge, before submitting; `CodenetFrame.ValidatePrintJobPayload` is public if you want to check codes while importing them. |
 
 ---
 
@@ -292,13 +318,99 @@ full signature is listed under [Calling methods](#calling-methods-public-api).
 
 `new PrintJob(dateText, codeValue)` renders `"<date> <code>"` (`ToPayload()`), or just
 the code when the date is empty, and the SDK frames it as
-`1B 4F 45 <4-digit length> <ASCII payload> 04`.
 
-* the code value must be non-blank, at most **9999** characters, and **ASCII only** —
-  the length field is a 4-digit decimal and the printer expands the text with its own
-  template (layout, font and barcode encapsulation all live on the printer side);
-* the SDK does **not** wrap the value in a barcode or QR envelope — that is the
-  printer template's job.
+```
+1B 4F 45 <4-digit length> <ASCII payload> 04
+│        │                │             └─ EOT terminator
+│        │                └─ the code text (ASCII only)
+│        └─ zero-padded decimal count of the code text ONLY
+└─ ESC 'O' 'E'
+```
+
+**The length field counts the code text alone** — not the four length digits and not the
+terminator. A 20-character code therefore produces a 28-byte frame (`3 + 4 + 20 + 1`),
+because the payload it measures is `"0020" + 20 chars`:
+
+```
+1B 4F 45 30 30 32 30 32 30 32 36 2D 30 39 2D 31 37 20 41 42 43 30 30 30 30 30 31 04
+│        │        └──────────── 20 bytes of code text ────────────┘              │
+│        └─ "0020" = 20, the count of the code text                              │
+└─ 1B 4F 45 = ESC 'O' 'E'                                                        └─ 04
+```
+
+Getting this offset wrong by four is the easiest way to build a frame the printer
+rejects, so the SDK does not leave it to you: `CodenetFrame.ValidatePrintJobPayload` runs
+**before** anything is written to the transport.
+
+### What a payload may contain
+
+| Constraint | Why |
+|---|---|
+| Non-null, non-empty | An empty `OE` frame carries no code to print. |
+| At most **9999** characters | The length field is four decimal digits. |
+| **ASCII only** (each char `<= 0x7F`) | The printer expands the text with its own template; there is no defined encoding for anything else. |
+| **Must not contain `0x04`** | `0x04` is the frame terminator. A payload byte of `0x04` makes the frame look finished early: the tail of the code is silently dropped and the remainder is re-scanned as stray bytes. Rejecting it up front is far safer than losing codes on a production line. |
+
+`0x1B` (ESC) **is** allowed inside a payload — it is only special as the *first* byte of a
+frame, so an escaped byte elsewhere is unambiguous.
+
+`ValidatePrintJobPayload` is public, so you can pre-validate at the edge (while scanning
+or importing codes, say) instead of discovering the problem at submit time. All four
+violations throw `ArgumentException` naming the offending character or length.
+
+```csharp
+try
+{
+    CodenetFrame.ValidatePrintJobPayload(code);   // fail fast, before ConnectAsync
+}
+catch (ArgumentException ex)
+{
+    Console.WriteLine("code rejected: " + ex.Message);
+}
+```
+
+The SDK does **not** wrap the value in a barcode or QR envelope — that is the printer
+template's job. Layout, font and barcode encapsulation all live on the printer side.
+
+---
+
+## Length-aware framing
+
+A receiver that finds frame boundaries by scanning for the first `0x04` is wrong for the
+`OE` family, for exactly the reason above: the declared length and the scanned terminator
+can disagree.
+
+`CodenetFrame.TryParseFrame` therefore cross-checks both when an `OE` frame arrives:
+
+1. Scan for the first `0x04` — this fallback bound is always computed.
+2. If the header is `1B 4F 45`, read the four bytes that follow as a decimal length.
+3. The terminator **must** sit at `3 + 4 + declared`. If it does not, the parser reports
+   "need more bytes" rather than consuming a frame whose payload it cannot trust.
+4. If those four bytes are **not** a usable length field, fall back to the scanned `0x04`.
+
+Step 4 matters because not every `OE` frame is length-prefixed. The FIFO depth query
+(`1B 4F 45 30 30 30 31 37 04`) and the clear-queue command
+(`1B 4F 45 30 30 30 30 <idx> 04`) are fixed-layout literals, so the parser classifies them
+as "no length field" and treats the scanned terminator as the bound. Step 3 is what
+protects you from a corrupt or truncated length: rather than cutting the frame at a
+boundary it cannot justify, the SDK waits for more bytes.
+
+| Frame | Length field? | Bound used |
+|---|---|---|
+| Print job (`OE` + 4 digits + code + `04`) | yes | declared length, cross-checked against the terminator |
+| FIFO query (`00017`) | no — literal | scanned `0x04` |
+| Clear queue (`0000` + index) | no — literal | scanned `0x04` |
+| Signal setup (`1B 49 31 32 04`) | no | scanned `0x04` |
+
+What this buys you in practice:
+
+* **A lying or corrupt length cannot truncate a job** — the parser refuses to guess.
+* **Coalesced frames split in order**, and **split frames reassemble**: every split point
+  of every frame type is covered by the test suite.
+* **Stray garbage is resynchronised** instead of poisoning the stream.
+
+Byte-level detail and worked examples: [../Docs/ProtocolNotes.md](../Docs/ProtocolNotes.md)
+(§1.2 and §5.4).
 
 ---
 
@@ -423,6 +535,24 @@ The mock is only a simulator: it emulates the admission rule and the command gra
 nothing else. Treat a green suite as proof that the *client* behaves, not that a
 particular firmware revision will.
 
+### What the framing tests pin down
+
+`DominoSdk.Harness/TestCases/FramingTests.cs` locks in the byte-level contract this
+README describes — it needs no printer and no mock, because `CodenetFrame` is pure:
+
+| Test | Asserts |
+|---|---|
+| `BuildPrintJobFrame_LengthFieldCountsCodeTextOnly` | The 4-digit field counts the code text only, not the digits themselves. |
+| `BuildPrintJobFrame_RejectsTerminatorInsidePayload` | `0x04` anywhere in the code throws instead of producing a truncatable frame. |
+| `BuildPrintJobFrame_AllowsEscInsidePayload` | `0x1B` mid-payload is still legal. |
+| `BuildPrintJobFrame_RejectsInvalidPayload` | Null, empty and non-ASCII codes all throw. |
+| `BuildPrintJobFrame_EnforcesMaximumLength` | 9999 characters is accepted, 10000 is not. |
+| `TryParseFrame_RoundTripsEveryFrameType` | Every builder output parses back byte-identical. |
+| `TryParseFrame_HandlesEverySplitPoint` | A frame cut at *any* byte offset still reassembles. |
+| `TryParseFrame_RejectsLyingLengthField` | A declared length that disagrees with the terminator is refused, not guessed. |
+| `TryParseFrame_SplitsCoalescedFramesInOrder` | Two frames in one read split correctly and in order. |
+| `TryParseFrame_ResynchronisesAfterGarbage` | Leading junk does not poison the stream. |
+
 ---
 
 ## Requirements
@@ -446,6 +576,9 @@ particular firmware revision will.
 * **Serial parity is untested on hardware.** `DominoA200SerialClient` reuses the same
   framing, FIFO mirror and state machine as the TCP client, but only the TCP path has
   been exercised against a physical printer.
+* **`0x04` is rejected everywhere in a payload.** The frame has a single terminator and no
+  escape mechanism, so a code that legitimately needs a `0x04` byte cannot be sent as-is;
+  it would have to be encoded at the printer-template level.
 * **No TLS** — the Codenet port is a plain TCP socket, so keep it on a trusted network.
 * **No delivery guarantee.** A job that the printer accepted but never printed is only
   observable as a missing `0x32`; there is no re-print from the SDK.
@@ -457,5 +590,5 @@ particular firmware revision will.
 | Document | Contents |
 |---|---|
 | [../Docs/ApiReference.md](../Docs/ApiReference.md) | Every public type, member and default. |
-| [../Docs/ProtocolNotes.md](../Docs/ProtocolNotes.md) | Observed wire behaviour with byte-level examples. |
+| [../Docs/ProtocolNotes.md](../Docs/ProtocolNotes.md) | Observed wire behaviour with byte-level examples; §1.2 covers the `OE` frame layout, §5.4 length-aware framing. |
 | [../README.md](../README.md) | Repository overview: mock, demo, tests, layout. |
