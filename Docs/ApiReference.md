@@ -334,12 +334,24 @@ printer.Stop();
 |-------------------|------------------------------------------------------------|
 | `Port`            | The listening port.                                        |
 | `DEFAULT_PRINT_DURATION_MS` | `const int`, default simulated print time (`1500` ms). |
+| `Silent`          | When `true`, connections stay open but no command is ever answered — models a printer that is reachable yet not responding. |
 | `LogLine`         | Event raised for each logged traffic line.                 |
 | `Start()`         | Bind and begin accepting (non-blocking).                   |
-| `Stop()`          | Stop listening and drop all sessions.                      |
+| `Stop()`          | Stop listening, drop all sessions, and wait for the accept thread to finish before returning. |
 
 Emulated limits: FIFO capacity 3, print duration configurable (1500 ms by default),
 `0x15` on overflow, unsolicited `0x32` after each simulated print.
+
+**One session at a time.** `AcceptLoop` serves a single client to completion before
+accepting the next, mirroring a physical printer with one Codenet port. A second client
+that connects while the first is still open is not rejected — it simply waits to be
+accepted, so a test that leaves a connection open will stall every later connection.
+
+**Reachability vs. liveness.** `Stop()` closes the listening socket and every live
+session, which a client observes immediately as a lost link. To model the harder case —
+the printer answers the TCP handshake but has stopped replying — set `Silent = true`
+instead: the socket stays open and frames are absorbed without a reply, so the caller
+hits its own command timeout rather than a disconnect.
 
 `MockPrinter` measures incoming frames the same way the client parses them: an `OE` frame
 is bounded by its declared length (the terminator must sit at `3 + 4 + declared`), while

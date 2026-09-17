@@ -535,6 +535,17 @@ The mock is only a simulator: it emulates the admission rule and the command gra
 nothing else. Treat a green suite as proof that the *client* behaves, not that a
 particular firmware revision will.
 
+Two properties of the mock are worth knowing when you write tests against it:
+
+* **It serves one session at a time**, matching a physical printer with a single Codenet
+  port. A second client that connects while the first is still open is not refused — it
+  waits to be accepted, so a test that forgets to disconnect will stall every connection
+  that follows. Always `DisconnectAsync()` (or `using`) before the next client connects.
+* **`Stop()` closes the link; `Silent = true` only goes quiet.** The first looks to a
+  client like a dropped cable and is noticed within milliseconds, so a command issued
+  afterwards fails as "not connected" rather than timing out. To exercise the
+  command-timeout path, hold the connection open and set `Silent = true`.
+
 ### What the framing tests pin down
 
 `DominoSdk.Harness/TestCases/FramingTests.cs` locks in the byte-level contract this

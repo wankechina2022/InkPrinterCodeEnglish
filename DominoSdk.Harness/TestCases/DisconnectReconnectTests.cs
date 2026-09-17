@@ -213,8 +213,19 @@ public sealed class DisconnectReconnectTests
     /// connection, and surfaces the failure as <see cref="PrinterTimeoutException"/>.
     ///
     /// <para>
-    /// A dedicated simulator is used so stopping it does not disturb the shared fixture
-    /// the other tests rely on.
+    /// <b>Why the simulator is put into silent mode instead of being stopped.</b>
+    /// Stopping the server closes the socket, and the client's receive loop notices the
+    /// FIN/RST within a few milliseconds and marks the link lost. A command issued after
+    /// that is rejected with <see cref="InvalidOperationException"/> ("not connected")
+    /// before it is ever written, so the timeout path is never reached and the assertion
+    /// becomes a race against the receive loop.
+    /// </para>
+    ///
+    /// <para>
+    /// Silent mode keeps the connection open and simply never answers, which is exactly
+    /// the real-world case this test is about: the printer is powered on and reachable,
+    /// but has stopped responding. A dedicated simulator is used so putting it in silent
+    /// mode cannot disturb the shared fixture the other tests rely on.
     /// </para>
     /// </summary>
     [Fact]
@@ -241,11 +252,9 @@ public sealed class DisconnectReconnectTests
             await client.ConnectAsync();
             Assert.True(client.IsConnected);
 
-            // Tear the peer down so the next command can never get a reply, then issue it.
-            // [2026-09-16] A short settle after the stop lets the loss be observed before
-            // the write, making the timeout path deterministic.
-            simulator.Stop();
-            await Task.Delay(200);
+            // [2026-09-17] The link stays up but goes quiet, so the next command is
+            // written successfully and then never answered - the genuine timeout case.
+            simulator.Silent = true;
 
             await Assert.ThrowsAsync<PrinterTimeoutException>(async () =>
             {

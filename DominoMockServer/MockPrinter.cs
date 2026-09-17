@@ -39,6 +39,7 @@ public sealed class MockPrinter : IDisposable
     private readonly CodenetHandler _handler = new CodenetHandler();
 
     private TcpListener? _listener;
+    private Thread? _acceptThread;
     private readonly List<ClientSession> _sessions = new List<ClientSession>();
     private readonly object _sessionsLock = new object();
     private readonly MockFifoQueue _fifo = new MockFifoQueue();
@@ -46,8 +47,31 @@ public sealed class MockPrinter : IDisposable
 
     private volatile bool _running;
 
+    // [2026-09-17] When true the server keeps every connection OPEN but answers nothing.
+    // This is the only way to reproduce a real-world "printer alive but not responding"
+    // condition: stopping the server sends a FIN/RST, which the client notices at once as
+    // a connection loss, so the command-timeout path is never exercised. Holding the
+    // socket open while staying silent drives exactly that path.
+    private volatile bool _silent;
+
     /// <summary>Raised for every logged line, useful for tests that assert on traffic.</summary>
     public event EventHandler<string>? LogLine;
+
+    /// <summary>
+    /// When set to <c>true</c> the server keeps accepting and holding connections but
+    /// stops answering any command, so callers observe a timeout rather than a
+    /// disconnect. Useful for exercising the client's command-timeout handling.
+    /// </summary>
+    public bool Silent
+    {
+        get { return _silent; }
+        set
+        {
+            _silent = value;
+            Log("MODE", value ? "Silent: connections stay open, no replies sent."
+                              : "Normal: commands are answered again.");
+        }
+    }
 
     /// <summary>Creates the mock server.</summary>
     /// <param name="port">TCP port to listen on.</param>
@@ -106,6 +130,10 @@ public sealed class MockPrinter : IDisposable
             IsBackground = true,
             Name = "MockPrinter.Accept"
         };
+
+        // [2026-09-17] Remembered so Stop() can join it. An unjoined accept thread would
+        // survive a restart and race the new one for the port (see Stop).
+        _acceptThread = acceptThread;
         acceptThread.Start();
 
         Log("LISTEN", "Mock A200+ listening on 127.0.0.1:" + _port.ToString());
@@ -127,14 +155,40 @@ public sealed class MockPrinter : IDisposable
 
         _listener = null;
 
+        // [2026-09-17] Drop the sessions BEFORE waiting for the accept thread. Disposing
+        // the session sockets unblocks a Run() that is waiting on the peer, which is what
+        // lets the accept thread reach its loop condition and exit.
+        //
+        // The list is snapshotted under the lock and disposed outside it: Run() calls
+        // RemoveSession from its finally block, so disposing while holding the lock would
+        // make that thread wait - and iterating a list another thread may be mutating is
+        // not safe.
+        ClientSession[] sessions;
+
         lock (_sessionsLock)
         {
-            foreach (ClientSession session in _sessions)
-            {
-                session.Dispose();
-            }
-
+            sessions = _sessions.ToArray();
             _sessions.Clear();
+        }
+
+        foreach (ClientSession session in sessions)
+        {
+            session.Dispose();
+        }
+
+        // [2026-09-17] Wait for the accept thread to finish. Without this, a restart
+        // (Start after Stop, as the reconnect test does) could leave the old thread alive
+        // and two accept loops would compete for the same port, so a fresh client could
+        // be picked up by the stale loop and never served.
+        Thread? acceptThread = _acceptThread;
+        _acceptThread = null;
+
+        if (acceptThread != null && acceptThread.IsAlive)
+        {
+            if (!acceptThread.Join(TimeSpan.FromSeconds(2)))
+            {
+                Log("WARN", "Accept thread did not exit within 2 s; it will terminate on the next accept.");
+            }
         }
 
         _fifo.Clear();
@@ -155,9 +209,10 @@ public sealed class MockPrinter : IDisposable
     private void AcceptLoop()
     {
         // [2026-09-16] Serve ONE client at a time (F9-a), matching a single physical
-        // printer. Accept a connection, handle it to completion (the session loop
-        // blocks until the client disconnects), then accept the next. This removes the
-        // cross-session FIFO contamination the old thread-per-client design allowed.
+        // printer: one Codenet port, one session. Accept a connection, handle it to
+        // completion (the session loop returns once the client disconnects or the peer
+        // drops), then accept the next. This removes the cross-session FIFO contamination
+        // a thread-per-client design would allow.
         while (_running)
         {
             try
@@ -169,6 +224,24 @@ public sealed class MockPrinter : IDisposable
                 }
 
                 TcpClient client = listener.AcceptTcpClient();
+
+                // [2026-09-17] Stop() may have landed while we were blocked in accept.
+                // Close the socket we just took rather than starting a session for a
+                // server that is already shutting down.
+                if (!_running)
+                {
+                    try
+                    {
+                        client.Close();
+                    }
+                    catch (Exception)
+                    {
+                        // Best-effort teardown.
+                    }
+
+                    return;
+                }
+
                 ClientSession session = new ClientSession(client, this);
 
                 lock (_sessionsLock)
@@ -210,6 +283,15 @@ public sealed class MockPrinter : IDisposable
     /// </summary>
     internal void HandleFrame(ClientSession session, byte[] frame)
     {
+        // [2026-09-17] Silent mode: absorb the frame and answer nothing, so the caller
+        // times out instead of being told to stop. Deliberately does NOT close the socket
+        // - a closed socket would look like a disconnect, which is a different failure.
+        if (_silent)
+        {
+            Log("SILENT", "Frame absorbed with no reply: " + ToHex(frame));
+            return;
+        }
+
         // Delegate byte-level interpretation to the protocol handler, which knows the
         // command grammar. This keeps the socket lifecycle here and the emulated
         // protocol semantics there.
@@ -384,6 +466,7 @@ public sealed class MockPrinter : IDisposable
         private readonly TcpClient _client;
         private readonly MockPrinter _owner;
         private readonly NetworkStream _stream;
+        private readonly Socket _socket;
         private readonly object _writeLock = new object();
         private volatile bool _closed;
 
@@ -395,6 +478,10 @@ public sealed class MockPrinter : IDisposable
             _client = client;
             _owner = owner;
             _stream = client.GetStream();
+
+            // [2026-09-17] Kept so the read loop can wait on the socket itself and so a
+            // dropped peer is noticed promptly (see Run).
+            _socket = client.Client;
         }
 
         /// <summary>Read loop for this connection.</summary>
@@ -407,9 +494,26 @@ public sealed class MockPrinter : IDisposable
             {
                 while (!_closed)
                 {
+                    // [2026-09-17] Detect a dropped peer instead of spinning forever.
+                    //
+                    // The old loop tested DataAvailable and, when it was false, slept 5 ms
+                    // and looped. That never noticed a closed or reset connection:
+                    // DataAvailable simply keeps returning false, _closed stays false (only
+                    // Dispose sets it), and the loop runs to the end of the process. Because
+                    // AcceptLoop calls Run() synchronously, the accept thread was then
+                    // parked forever and every later client was queued behind it, never
+                    // accepted - which surfaced as "No acknowledgement for 'print signal
+                    // setup'" in whichever test connected next.
+                    //
+                    // Polling the socket lets us see FIN/RST: Available goes to 0 and Poll
+                    // reports the error/read-closed condition.
+                    if (_socket.Poll(20000, SelectMode.SelectRead) && _socket.Available == 0)
+                    {
+                        break;   // readable with no data == the peer closed the link
+                    }
+
                     if (!_stream.DataAvailable)
                     {
-                        Thread.Sleep(5);
                         continue;
                     }
 
@@ -451,6 +555,11 @@ public sealed class MockPrinter : IDisposable
             catch (ObjectDisposedException)
             {
                 // Normal shutdown path.
+            }
+            catch (SocketException)
+            {
+                // The peer reset the connection, or the socket was closed underneath us.
+                // Either way this session is finished; fall through to the finally block.
             }
             catch (IOException ex)
             {
