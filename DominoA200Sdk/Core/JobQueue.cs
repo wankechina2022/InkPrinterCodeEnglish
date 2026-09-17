@@ -13,9 +13,9 @@ namespace DominoA200Sdk.Core;
 /// </para>
 ///
 /// <para>
-/// <b>Ordering.</b> Jobs leave the queue in submission order (FIFO). Completion may
-/// arrive out of order in theory, so <see cref="Complete"/> removes by job id rather
-/// than by position.
+/// <b>Ordering.</b> Jobs leave the queue in submission order (FIFO): a bare <c>0x32</c>
+/// completion event carries no job id, so it is matched against the oldest entry still
+/// awaiting completion.
 /// </para>
 /// </summary>
 public sealed class JobQueue
@@ -47,7 +47,7 @@ public sealed class JobQueue
     /// <param name="codeValue">The code text associated with the job.</param>
     public void Enqueue(string jobId, string codeValue)
     {
-        JobQueueEntry entry = new JobQueueEntry(jobId, codeValue, DateTime.Now);
+        JobQueueEntry entry = new JobQueueEntry(jobId, codeValue);
 
         lock (_orderLock)
         {
@@ -55,41 +55,6 @@ public sealed class JobQueue
             {
                 _order.Enqueue(jobId);
             }
-        }
-    }
-
-    /// <summary>
-    /// Remove a job from the mirror, typically when its print-complete event arrives.
-    /// </summary>
-    /// <param name="jobId">The job identifier to remove.</param>
-    /// <returns>The removed entry, or <c>null</c> when the id was not queued.</returns>
-    public JobQueueEntry? Complete(string jobId)
-    {
-        if (string.IsNullOrEmpty(jobId))
-        {
-            return null;
-        }
-
-        lock (_orderLock)
-        {
-            if (!_entries.TryRemove(jobId, out JobQueueEntry? entry))
-            {
-                return null;
-            }
-
-            // Rebuild the ordering queue without the removed id. The queue is tiny
-            // (capacity 3), so a linear rebuild is cheaper than a linked-list remove.
-            int pending = _order.Count;
-            for (int i = 0; i < pending; i++)
-            {
-                string current = _order.Dequeue();
-                if (!string.Equals(current, jobId, StringComparison.Ordinal))
-                {
-                    _order.Enqueue(current);
-                }
-            }
-
-            return entry;
         }
     }
 
@@ -123,29 +88,16 @@ public sealed class JobQueue
             _order.Clear();
         }
     }
-
-    /// <summary>
-    /// Snapshot of the queued job identifiers, oldest first. Exposed for diagnostics
-    /// and test assertions.
-    /// </summary>
-    public IReadOnlyList<string> SnapshotIds()
-    {
-        lock (_orderLock)
-        {
-            return _order.ToArray();
-        }
-    }
 }
 
 /// <summary>One entry in the <see cref="JobQueue"/> mirror.</summary>
 public sealed class JobQueueEntry
 {
     /// <summary>Creates a queue entry.</summary>
-    public JobQueueEntry(string jobId, string codeValue, DateTime submittedAt)
+    public JobQueueEntry(string jobId, string codeValue)
     {
         JobId = jobId;
         CodeValue = codeValue;
-        SubmittedAt = submittedAt;
     }
 
     /// <summary>The job identifier assigned by the SDK.</summary>
@@ -153,7 +105,4 @@ public sealed class JobQueueEntry
 
     /// <summary>The code text submitted with the job.</summary>
     public string CodeValue { get; }
-
-    /// <summary>Local time at which the printer acknowledged the job.</summary>
-    public DateTime SubmittedAt { get; }
 }

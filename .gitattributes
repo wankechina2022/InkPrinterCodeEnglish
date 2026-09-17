@@ -1,7 +1,21 @@
 ###############################################################################
-# Set default behavior to automatically normalize line endings.
+# Line endings
+#
+# This repository is stored with LF endings throughout, so a clone on any OS
+# and a GitHub web view render identically. `eol=lf` also stops Visual Studio
+# from reintroducing CRLF on save: with the attribute set, git treats CRLF and
+# LF as equivalent and a save does not show up as a whole-file diff.
 ###############################################################################
-* text=auto
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.7z   binary
 
 ###############################################################################
 # Set default behavior for command prompt diff.

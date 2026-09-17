@@ -51,12 +51,6 @@ public sealed class PrinterStateMachine
         get { return _state; }
     }
 
-    /// <summary>True when the printer is connected and idle.</summary>
-    public bool IsIdle
-    {
-        get { return _state == PrinterState.Idle; }
-    }
-
     /// <summary>
     /// Drive the machine to <paramref name="target"/>.
     /// <para>

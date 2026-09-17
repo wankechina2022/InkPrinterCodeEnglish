@@ -23,7 +23,7 @@ string host = args.Length > 0 ? args[0] : "127.0.0.1";
 int port = args.Length > 1 && int.TryParse(args[1], out int parsedPort) ? parsedPort : 7000;
 
 Console.WriteLine("==============================================================");
-Console.WriteLine("  Domino A200+ Codenet SDK — Console Demo");
+Console.WriteLine("  Domino A200+ Codenet SDK - Console Demo");
 Console.WriteLine("--------------------------------------------------------------");
 Console.WriteLine("  Unofficial interoperability demo. NOT official Domino");
 Console.WriteLine("  software. For technical demonstration only, not for resale.");
@@ -187,7 +187,7 @@ while (DateTime.UtcNow < waitDeadline && printer.GetStatus().FifoQueueCount > 0)
     await Task.Delay(200);
 }
 
-int remaining = (await printer.GetFifoQueueCountAsync());
+int remaining = await printer.GetFifoQueueCountAsync();
 
 Console.WriteLine();
 Console.WriteLine("  -> Completed jobs this run: " + completedJobs.ToString());

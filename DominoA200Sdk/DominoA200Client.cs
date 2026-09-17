@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Text;
 using DominoA200Sdk.Core;
 using DominoA200Sdk.Exceptions;
 using DominoA200Sdk.Models;
@@ -77,7 +76,7 @@ public sealed class DominoA200Client : IDisposable
     private int _reconnecting;
     // [2026-09-16] Set by CloseInternal, cleared at the start of the next ConnectAsync.
     // Distinguishes "an intentional close landed while a connect was in flight" from
-    // "a fresh client that has simply never connected" — _running is false in BOTH
+    // "a fresh client that has simply never connected" - _running is false in BOTH
     // cases, so the earlier F3 check "_disposed || !_running" silently aborted every
     // first connect (seen as "Client is not connected" on the first SendPrintJobAsync).
     private volatile bool _closeRequested;
@@ -270,7 +269,7 @@ public sealed class DominoA200Client : IDisposable
             // [2026-09-16] Re-check after the awaits (F3): a Dispose() or intentional
             // close may have landed while we were establishing the socket. Drop the
             // socket so a disposed/closed client is never revived with a live stream.
-            // [2026-09-16 fix] _running is deliberately NOT checked here — it is false
+            // [2026-09-16 fix] _running is deliberately NOT checked here - it is false
             // on a fresh client too, and the old "_disposed || !_running" check
             // silently aborted every first connect. The _closeRequested flag covers
             // the intentional-close case without breaking the first-connect path.
@@ -286,30 +285,30 @@ public sealed class DominoA200Client : IDisposable
                 _stream = client.GetStream();
             }
 
-        _running = true;
-        _connected = true;
-        _stateMachine.TransitionTo(PrinterState.Idle);
+            _running = true;
+            _connected = true;
+            _stateMachine.TransitionTo(PrinterState.Idle);
 
-        _receiveThread = new Thread(ReceiveLoop)
-        {
-            IsBackground = true,
-            Name = "DominoA200.Receive"
-        };
-        _receiveThread.Start();
+            _receiveThread = new Thread(ReceiveLoop)
+            {
+                IsBackground = true,
+                Name = "DominoA200.Receive"
+            };
+            _receiveThread.Start();
 
-        OnConnected?.Invoke(this, EventArgs.Empty);
-        LogTraffic("CONNECT", _host + ":" + _port.ToString());
+            OnConnected?.Invoke(this, EventArgs.Empty);
+            LogTraffic("CONNECT", _host + ":" + _port.ToString());
 
-        // Protocol handshake: tell the printer to report print completion, then clear
-        // any stale queued data so our FIFO mirror starts from a known state.
-        await SendWithAckAsync(CodenetFrame.BuildSignalSetupFrame(), "print signal setup", cancellationToken)
-            .ConfigureAwait(false);
-        await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(0), "clear TCP/IP queue", cancellationToken)
-            .ConfigureAwait(false);
-        await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(1), "clear RS232 queue", cancellationToken)
-            .ConfigureAwait(false);
-        await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(2), "clear history queue", cancellationToken)
-            .ConfigureAwait(false);
+            // Protocol handshake: tell the printer to report print completion, then clear
+            // any stale queued data so our FIFO mirror starts from a known state.
+            await SendWithAckAsync(CodenetFrame.BuildSignalSetupFrame(), "print signal setup", cancellationToken)
+                .ConfigureAwait(false);
+            await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(0), "clear TCP/IP queue", cancellationToken)
+                .ConfigureAwait(false);
+            await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(1), "clear RS232 queue", cancellationToken)
+                .ConfigureAwait(false);
+            await SendWithAckAsync(CodenetFrame.BuildClearQueueFrame(2), "clear history queue", cancellationToken)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -326,8 +325,8 @@ public sealed class DominoA200Client : IDisposable
     /// <para>
     /// The method writes the job frame and waits for the acknowledgement. A
     /// <c>0x06</c> means the printer accepted the job, which is then added to the FIFO
-    /// mirror and its generated job id returned. A <c>0x15</c> means rejection — most
-    /// often because the on-board queue is full — and raises
+    /// mirror and its generated job id returned. A <c>0x15</c> means rejection - most
+    /// often because the on-board queue is full - and raises
     /// <see cref="PrinterNackException"/>.
     /// </para>
     /// </summary>
@@ -351,6 +350,12 @@ public sealed class DominoA200Client : IDisposable
         }
 
         string payload = job.ToPayload();
+
+        // [2026-09-17] Validate before touching the transport (F10). A rejected payload
+        // is a caller error, not a link failure, so it must not cost an ACK round-trip
+        // or leave the FIFO mirror out of step with the printer.
+        CodenetFrame.ValidatePrintJobPayload(payload);
+
         byte[] frame = CodenetFrame.BuildPrintJobFrame(payload);
 
         bool acknowledged = await SendWithAckAsync(frame, "print job", cancellationToken).ConfigureAwait(false);
@@ -770,7 +775,7 @@ public sealed class DominoA200Client : IDisposable
         }
 
         // [2026-09-15] Fix: CloseInternal() clears _running, which is exactly the flag
-        // the reconnect loop checks — so with auto-reconnect enabled the recovery loop
+        // the reconnect loop checks - so with auto-reconnect enabled the recovery loop
         // could never start (caught by AutoReconnect_EngagesWhenCommandTimesOut: no
         // OnReconnecting ever fired after a command timeout). Re-arm the flag here.
         // The old receive thread has already been joined by CloseInternal(), and
@@ -800,37 +805,37 @@ public sealed class DominoA200Client : IDisposable
     {
         try
         {
-        // [2026-09-15] Added !_disposed to the loop condition: a reconnect started just
-        // before Dispose() must not keep retrying (or silently reconnect) afterwards.
-        while (_autoReconnect && _running && !_connected && !_disposed)
-        {
-            try
+            // [2026-09-15] Added !_disposed to the loop condition: a reconnect started just
+            // before Dispose() must not keep retrying (or silently reconnect) afterwards.
+            while (_autoReconnect && _running && !_connected && !_disposed)
             {
-                await Task.Delay(_reconnectDelayMs).ConfigureAwait(false);
-
-                if (!_running || _connected)
+                try
                 {
+                    await Task.Delay(_reconnectDelayMs).ConfigureAwait(false);
+
+                    if (!_running || _connected)
+                    {
+                        return;
+                    }
+
+                    LogTraffic("INFO", "Attempting reconnect to " + _host + ":" + _port.ToString() + " ...");
+                    await ConnectAsync().ConfigureAwait(false);
+
+                    // [2026-09-16] Re-check after the await (F3): the client may have been
+                    // disposed or intentionally closed while we were reconnecting.
+                    if (_disposed || !_running)
+                    {
+                        return;
+                    }
+
+                    LogTraffic("INFO", "Reconnect succeeded.");
                     return;
                 }
-
-                LogTraffic("INFO", "Attempting reconnect to " + _host + ":" + _port.ToString() + " ...");
-                await ConnectAsync().ConfigureAwait(false);
-
-                // [2026-09-16] Re-check after the await (F3): the client may have been
-                // disposed or intentionally closed while we were reconnecting.
-                if (_disposed || !_running)
+                catch (Exception ex)
                 {
-                    return;
+                    LogTraffic("WARN", "Reconnect attempt failed: " + ex.Message);
                 }
-
-                LogTraffic("INFO", "Reconnect succeeded.");
-                return;
             }
-            catch (Exception ex)
-            {
-                LogTraffic("WARN", "Reconnect attempt failed: " + ex.Message);
-            }
-        }
         }
         finally
         {
@@ -863,10 +868,10 @@ public sealed class DominoA200Client : IDisposable
             // (TcpPrinterConnection.Close). The A200+ firmware does not release the
             // connection slot on a plain FIN, so repeated reconnects pile up and the
             // printer reports "connection count reached". We therefore:
-            //   (1) Shutdown(SocketShutdown.Both) — send a polite FIN for notification;
-            //   (2) LingerOption(true, 0) — mark the socket so the next close issues an
+            //   (1) Shutdown(SocketShutdown.Both) - send a polite FIN for notification;
+            //   (2) LingerOption(true, 0) - mark the socket so the next close issues an
             //       RST instead of a FIN (documented Windows behavior; no TIME_WAIT);
-            //   (3) close the stream then the client — the RST goes out here.
+            //   (3) close the stream then the client - the RST goes out here.
             // The LingerState MUST be set before disposing the stream, because
             // NetworkStream.Dispose releases the underlying socket.
             TcpClient? tcpClient = _tcpClient;

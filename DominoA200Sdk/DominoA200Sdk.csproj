@@ -22,4 +22,11 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- [2026-09-17] RS232 transport for DominoA200SerialClient. On .NET 8 the
+         SerialPort type is not part of the shared framework and must be referenced
+         explicitly (mirrors the host application's InkPrinterCode.csproj). -->
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+
 </Project>

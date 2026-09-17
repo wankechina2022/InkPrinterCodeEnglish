@@ -361,3 +361,11 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+###############################################################################
+# WorkBuddy project data
+#
+# .workbuddy/ holds local working notes for this repository. It is not part of
+# the deliverable and must not be published.
+###############################################################################
+.workbuddy/

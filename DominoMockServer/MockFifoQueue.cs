@@ -87,11 +87,10 @@ public sealed class MockFifoQueue
 public sealed class MockJob
 {
     /// <summary>Creates a mock job.</summary>
-    public MockJob(string jobId, string payload, DateTime queuedAt)
+    public MockJob(string jobId, string payload)
     {
         JobId = jobId;
         Payload = payload;
-        QueuedAt = queuedAt;
     }
 
     /// <summary>Identifier assigned by the mock.</summary>
@@ -99,7 +98,4 @@ public sealed class MockJob
 
     /// <summary>The code text carried by the job.</summary>
     public string Payload { get; }
-
-    /// <summary>Local time at which the job was admitted.</summary>
-    public DateTime QueuedAt { get; }
 }

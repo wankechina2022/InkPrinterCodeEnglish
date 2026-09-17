@@ -1,9 +1,9 @@
 # DominoA200Sdk
 
-A dependency-free .NET 8 client library for the Domino A200+ inkjet printer
-**Codenet** protocol: TCP transport, frame assembly/parsing, ACK/NAK handling,
-timeouts, an on-board FIFO mirror, unsolicited `0x32` print-complete events and
-automatic reconnect — behind a small async API.
+A small .NET 8 client library for the Domino A200+ inkjet printer **Codenet** protocol,
+with **TCP/IP and RS232 serial** transports behind one shared framing layer: frame
+assembly/parsing, ACK/NAK handling, timeouts, an on-board FIFO mirror, unsolicited
+`0x32` print-complete events and automatic reconnect — all behind a small async API.
 
 ```csharp
 using DominoA200Sdk;
@@ -32,11 +32,12 @@ await printer.DisconnectAsync();
 
 ## Can this be used on its own?
 
-**Yes.** The library has no dependencies of any kind:
+**Yes.** The library has no *project* dependencies and a single package dependency:
+`System.IO.Ports`, which provides the `SerialPort` type used by the RS232 transport.
 
 | Project | Target | References | Role |
 |---|---|---|---|
-| **`DominoA200Sdk`** | `net8.0` | **nothing** — no `PackageReference`, no `ProjectReference` | the library |
+| **`DominoA200Sdk`** | `net8.0` | `System.IO.Ports` only — no `ProjectReference` | the library |
 | `DominoMockServer` | `net8.0` | nothing (it re-implements the printer side) | simulator, no hardware needed |
 | `DemoConsoleApp` | `net8.0` | `DominoA200Sdk` | end-to-end demo |
 | `DominoSdk.Harness` | `net8.0` | `DominoA200Sdk`, `DominoMockServer`, xUnit | automated tests |
@@ -150,19 +151,67 @@ printer prints silently, never sending a completion event.
 
 ---
 
+## RS232 serial transport
+
+The same protocol is also available over a serial port. `DominoA200SerialClient`
+reuses the **exact same** `CodenetFrame` framing, `JobQueue` mirror and
+`PrinterStateMachine` as the TCP client — only the byte transport differs — so the
+public surface is identical and switching a printer from TCP to serial is a one-line
+constructor change.
+
+```csharp
+using DominoA200Sdk;
+using DominoA200Sdk.Models;
+
+// Connect over COM3 at 9600 baud, 8 data bits / 1 stop bit / no parity (8N1).
+using DominoA200SerialClient printer = new DominoA200SerialClient(
+    portName:       "COM3",
+    baudRate:       9600,
+    autoReconnect:  true);
+
+printer.TrafficLogger   = line => Console.WriteLine(line);
+printer.OnJobCompleted += (s, e) =>
+    Console.WriteLine($"finished {e.CodeValue} ({e.JobId})");
+
+await printer.ConnectAsync();
+string jobId = await printer.SendPrintJobAsync(new PrintJob("2026-09-17", "ABC000123"));
+await printer.DisconnectAsync();
+```
+
+**Serial specifics**
+* The link opens **8N1** (`Parity.None`, 8 data bits, 1 stop bit) at the given baud rate
+  (default 9600; 19200 / 38400 / 57600 / 115200 are all valid).
+* The `SerialPort` object is guarded by a single I/O lock so the receive thread and the
+  caller's writes never touch the port concurrently — the same proven pattern used by the
+  field-tested serial connection in the `InkPrinterCode` host.
+* A short read-timeout polling loop keeps the receive thread responsive to disconnect and
+  to `DisconnectAsync()`; closing the port makes the blocked read throw, which ends the loop.
+* Everything else — the handshake, ACK/NAK/`0x32` handling, the FIFO mirror and the
+  reconnect loop — is identical to the TCP client.
+
+---
+
 ## Calling methods (public API)
 
-Everything the caller touches. The SDK owns the socket, receive thread, FIFO mirror
-and state machine; you drive it through these members only.
+Everything the caller touches. The SDK owns the transport, the receive thread, the FIFO
+mirror and the state machine; you drive it through these members only.
+`DominoA200SerialClient` exposes the **same methods, properties and events** as
+`DominoA200Client` — the two differ only in their constructors and in the two endpoint
+properties noted below.
 
-**Constructor** — `new DominoA200Client(host, port = 7000, responseTimeoutMs = 3000,
+**TCP constructor** — `new DominoA200Client(host, port = 7000, responseTimeoutMs = 3000,
 connectTimeoutMs = 5000, autoReconnect = false, reconnectDelayMs = 2000)`.
+
+**Serial constructor** — `new DominoA200SerialClient(portName, baudRate = 9600,
+responseTimeoutMs = 3000, connectTimeoutMs = 5000, autoReconnect = false,
+reconnectDelayMs = 2000)`. `connectTimeoutMs` is accepted for signature parity only:
+`SerialPort.Open()` is synchronous and there is no connect timeout to apply.
 
 **Methods**
 
 | Method | Returns | What it does |
 |---|---|---|
-| `ConnectAsync(CancellationToken)` | `Task` | Opens TCP to `port` (no 700-port pre-reset, nothing is ever sent to a control port), runs the handshake (print-signal setup `1B 49 31 32 04` + clear queues) and starts the receive loop. |
+| `ConnectAsync(CancellationToken)` | `Task` | Opens the transport (the TCP socket, or the serial port), runs the handshake (print-signal setup `1B 49 31 32 04` + clear queues) and starts the receive loop. Nothing is ever written to a control port. |
 | `SendPrintJobAsync(PrintJob, ct)` | `Task<string>` | Frames and sends one code. On `0x06` ACK it records the job in the FIFO mirror and returns the generated `JobId`. On `0x15` NAK it throws `PrinterNackException` (queue full). |
 | `GetFifoQueueCountAsync(ct)` | `Task<int>` | Returns the **client-side mirror count**; also sends the depth query as best-effort (the printer reply, if any, is ignored). |
 | `GetStatus()` | `PrinterStatus` | Synchronous snapshot: `IsConnected`, `FifoQueueCount`, `StateText`. |
@@ -175,7 +224,8 @@ connectTimeoutMs = 5000, autoReconnect = false, reconnectDelayMs = 2000)`.
 |---|---|---|
 | `IsConnected` | `bool` | Transport up. |
 | `State` | `PrinterState` | `Disconnected \| Idle \| Printing \| Alarm`. |
-| `Host` / `Port` | `string` / `int` | Configured endpoint. |
+| `Host` / `Port` | `string` / `int` | Configured TCP endpoint (TCP client only). |
+| `PortName` / `BaudRate` | `string` / `int` | Configured serial endpoint (serial client only). |
 | `TrafficLogger` | `Action<string>?` | Raw TX/RX hex per line; `null` to disable. |
 
 **Events** (all fire on background threads — marshal to the UI thread before touching controls)
@@ -208,7 +258,7 @@ between "works" and "mysteriously drops jobs":
 
 ---
 
-## Constructor parameters
+## Constructor parameters (`DominoA200Client`)
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -220,6 +270,9 @@ between "works" and "mysteriously drops jobs":
 | `reconnectDelayMs` | `2000` | Delay between reconnect attempts. |
 
 Values `<= 0` fall back to the defaults above.
+
+`DominoA200SerialClient` takes `portName` / `baudRate` instead of `host` / `port`; its
+full signature is listed under [Calling methods](#calling-methods-public-api).
 
 ---
 
@@ -376,7 +429,9 @@ particular firmware revision will.
 
 * **.NET 8 SDK** to build, **.NET 8 runtime** to run (`Microsoft.NETCore.App` 8.x;
   the WinForms host additionally needs `Microsoft.WindowsDesktop.App` 8.x).
-* No packages to restore — the library has no dependencies.
+* One package, **`System.IO.Ports` 8.0.0**, restored automatically. It supplies the
+  `SerialPort` type used by the RS232 transport; the TCP client needs nothing beyond
+  the base class library.
 * The demo, mock and test projects are console/test apps targeting `net8.0`.
 
 ---
@@ -388,7 +443,9 @@ particular firmware revision will.
 * **Print head 1 only** — the signal-setup frame used by `ConnectAsync` addresses head 1.
 * **The printer's true queue depth is never parsed**; the SDK reports its own mirror
   (see above).
-* **TCP only** in this library. Serial transport exists in the WinForms host, not here.
+* **Serial parity is untested on hardware.** `DominoA200SerialClient` reuses the same
+  framing, FIFO mirror and state machine as the TCP client, but only the TCP path has
+  been exercised against a physical printer.
 * **No TLS** — the Codenet port is a plain TCP socket, so keep it on a trusted network.
 * **No delivery guarantee.** A job that the printer accepted but never printed is only
   observable as a missing `0x32`; there is no re-print from the SDK.

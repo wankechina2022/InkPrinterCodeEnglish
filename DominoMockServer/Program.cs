@@ -34,18 +34,13 @@ Console.WriteLine("  protocol for interoperability development and demonstration
 Console.WriteLine("==============================================================");
 Console.WriteLine();
 Console.WriteLine("Starting mock printer on 127.0.0.1:" + port.ToString() + " ...");
-Console.WriteLine("Emulated limits: FIFO capacity 3, print time 1500 ms.");
+Console.WriteLine("Emulated limits: FIFO capacity " + MockFifoQueue.CAPACITY.ToString()
+                  + ", print time " + MockPrinter.DEFAULT_PRINT_DURATION_MS.ToString() + " ms.");
 Console.WriteLine("All traffic is logged as raw hexadecimal bytes below.");
 Console.WriteLine("Press Ctrl+C to stop.");
 Console.WriteLine();
 
 using MockPrinter printer = new MockPrinter(port, quiet: quiet);
-
-printer.LogLine += (sender, line) =>
-{
-    // Console output is already produced by MockPrinter; this subscription exists
-    // purely to demonstrate that traffic is observable programmatically.
-};
 
 printer.Start();
 

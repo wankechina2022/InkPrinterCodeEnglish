@@ -1,11 +1,11 @@
 namespace DominoMockServer;
 
 /// <summary>
-/// Command-level façade over the mock printer's protocol handling.
+/// Command-level facade over the mock printer's protocol handling.
 ///
 /// <para>
 /// <b>Role.</b> <see cref="MockPrinter"/> owns the socket and the session lifecycle;
-/// this type owns the <i>protocol semantics</i> — which command a frame represents and
+/// this type owns the <i>protocol semantics</i> - which command a frame represents and
 /// what answer it deserves. Keeping the two apart means the emulated rules can be
 /// unit-tested in isolation, without opening a socket.
 /// </para>
@@ -20,7 +20,6 @@ namespace DominoMockServer;
 public sealed class CodenetHandler
 {
     private const byte ESC = 0x1B;
-    private const byte EOT = 0x04;
 
     /// <summary>Optional sink for malformed-frame diagnostics. Set to null to disable.</summary>
     public Action<string>? Log { get; set; }
@@ -108,16 +107,23 @@ public sealed class CodenetHandler
 
         // Send-cached-data: four decimal length digits followed by that many
         // characters of code text.
-        if (payload.Length >= 4 && int.TryParse(payload.Substring(0, 4), out int declaredLength)
-            && declaredLength >= 0)
+        // [2026-09-17] The four leading digits are only a length field once they are
+        // all decimal digits (F11). "00017" (FIFO query) and "0000X" (clear queue) are
+        // fixed literals that were handled above; anything else that is not four digits
+        // is rejected outright instead of being coerced through int.TryParse.
+        if (payload.Length >= 4 && AreAllDecimalDigits(payload, 4)
+            && int.TryParse(payload.Substring(0, 4), out int declaredLength))
         {
             // [2026-09-16] The declared length must match the bytes actually present
             // (F5). A mismatch (truncated frame, corrupt length field) is rejected
             // gracefully instead of letting Substring throw an out-of-range exception.
-            if (payload.Length < 4 + declaredLength)
+            // [2026-09-17] The comparison is now exact rather than "at least": trailing
+            // bytes after the declared payload mean the length field is not trustworthy,
+            // which is precisely the condition that made the old parser fragile (F11).
+            if (payload.Length != 4 + declaredLength)
             {
                 Log?.Invoke("Malformed OE frame: declared length " + declaredLength.ToString()
-                    + " but only " + (payload.Length - 4).ToString()
+                    + " but " + (payload.Length - 4).ToString()
                     + " code bytes present; rejecting.");
                 return new ParsedCommand { Kind = CommandKind.Unknown };
             }
@@ -132,27 +138,25 @@ public sealed class CodenetHandler
         return new ParsedCommand { Kind = CommandKind.Unknown };
     }
 
-    /// <summary>The ACK byte (<c>0x06</c>).</summary>
-    public static byte AckByte
+    /// <summary>
+    /// Whether the first <paramref name="count"/> characters of <paramref name="text"/>
+    /// are all ASCII decimal digits.
+    /// </summary>
+    private static bool AreAllDecimalDigits(string text, int count)
     {
-        get { return 0x06; }
-    }
+        if (text.Length < count)
+        {
+            return false;
+        }
 
-    /// <summary>The NAK byte (<c>0x15</c>).</summary>
-    public static byte NakByte
-    {
-        get { return 0x15; }
-    }
+        for (int i = 0; i < count; i++)
+        {
+            if (text[i] < '0' || text[i] > '9')
+            {
+                return false;
+            }
+        }
 
-    /// <summary>The print-complete event byte (<c>0x32</c>).</summary>
-    public static byte PrintCompleteByte
-    {
-        get { return 0x32; }
-    }
-
-    /// <summary>The frame terminator (<c>0x04</c>).</summary>
-    public static byte Terminator
-    {
-        get { return EOT; }
+        return true;
     }
 }

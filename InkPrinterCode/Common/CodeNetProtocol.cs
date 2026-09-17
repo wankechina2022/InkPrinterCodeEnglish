@@ -97,6 +97,21 @@ namespace InkPrinterCode.Common
         {
             string text = codeValue ?? string.Empty;
 
+            // [2026-09-17] Reject the frame terminator inside the payload (F10). The
+            // receive side finds the end of a frame by scanning for the FIRST 0x04, so a
+            // payload byte of 0x04 makes the frame look terminated early: the tail of the
+            // code value is silently dropped and the rest is re-scanned as stray bytes.
+            // Reject it here rather than putting a truncated code on the production line.
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == (char)EOT)
+                {
+                    throw new ArgumentException(
+                        "Code value must not contain the frame terminator 0x04 (EOT); "
+                        + "it would truncate the frame mid-payload.", nameof(codeValue));
+                }
+            }
+
             // 4-digit decimal length with leading zeros (per the PDF; see the empirical conclusion in the class comment)
             string lengthText = text.Length.ToString("D4");
             string payload = lengthText + text;

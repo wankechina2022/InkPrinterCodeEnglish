@@ -30,6 +30,9 @@ public sealed class MockPrinter : IDisposable
     private const byte ACK = 0x06;
     private const byte NAK = 0x15;
 
+    /// <summary>Default simulated print duration, in milliseconds.</summary>
+    public const int DEFAULT_PRINT_DURATION_MS = 1500;
+
     private readonly int _port;
     private readonly int _printDurationMs;
     private readonly bool _quiet;
@@ -51,10 +54,10 @@ public sealed class MockPrinter : IDisposable
     /// <param name="printDurationMs">How long the simulated print takes before the
     /// <c>0x32</c> completion event is pushed. Defaults to 1500 ms.</param>
     /// <param name="quiet">When true, suppresses console output. Defaults to false.</param>
-    public MockPrinter(int port = 7000, int printDurationMs = 1500, bool quiet = false)
+    public MockPrinter(int port = 7000, int printDurationMs = DEFAULT_PRINT_DURATION_MS, bool quiet = false)
     {
         _port = port;
-        _printDurationMs = printDurationMs > 0 ? printDurationMs : 1500;
+        _printDurationMs = printDurationMs > 0 ? printDurationMs : DEFAULT_PRINT_DURATION_MS;
         _quiet = quiet;
 
         // [2026-09-16] Route malformed-frame diagnostics from the protocol handler to
@@ -66,12 +69,6 @@ public sealed class MockPrinter : IDisposable
     public int Port
     {
         get { return _port; }
-    }
-
-    /// <summary>Current emulated FIFO depth.</summary>
-    public int FifoCount
-    {
-        get { return _fifo.Count; }
     }
 
     /// <summary>
@@ -263,7 +260,7 @@ public sealed class MockPrinter : IDisposable
         }
 
         long sequence = Interlocked.Increment(ref _jobSequence);
-        MockJob job = new MockJob("MOCK-" + sequence.ToString("D6"), codeText, DateTime.Now);
+        MockJob job = new MockJob("MOCK-" + sequence.ToString("D6"), codeText);
 
         if (!_fifo.TryEnqueue(job))
         {
@@ -437,15 +434,15 @@ public sealed class MockPrinter : IDisposable
                             continue;
                         }
 
-                        int endIndex = buffer.IndexOf(EOT);
-                        if (endIndex < 0)
+                        int frameLength = MeasureFrame(buffer);
+                        if (frameLength <= 0)
                         {
                             break;
                         }
 
-                        byte[] frame = new byte[endIndex + 1];
-                        buffer.CopyTo(0, frame, 0, endIndex + 1);
-                        buffer.RemoveRange(0, endIndex + 1);
+                        byte[] frame = new byte[frameLength];
+                        buffer.CopyTo(0, frame, 0, frameLength);
+                        buffer.RemoveRange(0, frameLength);
 
                         _owner.HandleFrame(this, frame);
                     }
@@ -469,6 +466,83 @@ public sealed class MockPrinter : IDisposable
                 _owner.RemoveSession(this);
                 Dispose();
             }
+        }
+
+        /// <summary>
+        /// Determine the length of the frame at the head of <paramref name="buffer"/>.
+        ///
+        /// <para>
+        /// <b>Why not just scan for the first 0x04?</b> A frame terminator search alone
+        /// is unsafe: the payload of an <c>OE</c> frame declares its own length, and
+        /// trusting the first <c>0x04</c> would let a stray terminator byte inside the
+        /// payload split the frame early. This method cross-checks the declared length
+        /// when one is present, and only falls back to the scanned terminator for the
+        /// fixed-layout commands (print-signal setup, FIFO query, clear-queue) that
+        /// carry no length field.
+        /// </para>
+        /// </summary>
+        /// <returns>The frame length in bytes including the terminator, or 0 when no
+        /// complete frame is available yet.</returns>
+        private static int MeasureFrame(List<byte> buffer)
+        {
+            if (buffer.Count < 2 || buffer[0] != ESC)
+            {
+                return 0;
+            }
+
+            // Fixed-layout five-byte command with no payload.
+            if (buffer.Count >= 5 && buffer[1] == 0x49 && buffer[2] == 0x31 && buffer[3] == 0x32)
+            {
+                return buffer[4] == EOT ? 5 : 0;
+            }
+
+            // OE family: 1B 4F 45 <4-digit length> <payload> 04.
+            if (buffer[1] == 0x4F && buffer[2] == 0x45)
+            {
+                int declared = -1;
+                if (buffer.Count >= 7)
+                {
+                    int value = 0;
+                    bool allDigits = true;
+
+                    for (int i = 3; i <= 6; i++)
+                    {
+                        int digit = buffer[i] - 0x30;
+                        if (digit < 0 || digit > 9)
+                        {
+                            allDigits = false;
+                            break;
+                        }
+
+                        value = value * 10 + digit;
+                    }
+
+                    if (allDigits && value >= 4)
+                    {
+                        declared = value;
+                    }
+                }
+
+                if (declared >= 0)
+                {
+                    int total = 3 + declared + 1;
+                    if (buffer.Count < total)
+                    {
+                        return 0;
+                    }
+
+                    return buffer[total - 1] == EOT ? total : 0;
+                }
+
+                // Fixed-layout OE literals (FIFO query "00017", clear-queue "0000X"):
+                // no usable length field, so the terminator is the frame boundary.
+                int scanned = buffer.IndexOf(EOT);
+                return scanned < 0 ? 0 : scanned + 1;
+            }
+
+            // Unknown command family: fall back to the first terminator.
+            int terminator = buffer.IndexOf(EOT);
+            return terminator < 0 ? 0 : terminator + 1;
         }
 
         /// <summary>Write bytes to the client.</summary>

@@ -16,15 +16,12 @@ namespace DominoSdk.Harness.TestFixture;
 ///
 /// <para>
 /// <b>Port selection.</b> A free port is discovered by binding a temporary listener,
-/// so parallel test runs on the same machine do not collide on a hard-coded 8001.
+/// so parallel test runs on the same machine do not collide on a hard-coded port.
 /// </para>
 /// </summary>
 public sealed class MockServerFixture : IDisposable
 {
     private readonly MockPrinter _printer;
-
-    /// <summary>Collects every traffic line the simulator logs, for assertions.</summary>
-    public List<string> ServerLog { get; } = new List<string>();
 
     /// <summary>Starts the simulator on a free loopback port.</summary>
     public MockServerFixture()
@@ -34,13 +31,6 @@ public sealed class MockServerFixture : IDisposable
         // A short print time keeps the suite fast while still exercising the
         // asynchronous completion push.
         _printer = new MockPrinter(Port, printDurationMs: 400, quiet: true);
-        _printer.LogLine += (sender, line) =>
-        {
-            lock (ServerLog)
-            {
-                ServerLog.Add(line);
-            }
-        };
 
         _printer.Start();
     }
@@ -52,15 +42,6 @@ public sealed class MockServerFixture : IDisposable
     public string Host
     {
         get { return "127.0.0.1"; }
-    }
-
-    /// <summary>Snapshot of the logged traffic, safe to read while the server runs.</summary>
-    public IReadOnlyList<string> SnapshotLog()
-    {
-        lock (ServerLog)
-        {
-            return ServerLog.ToArray();
-        }
     }
 
     /// <summary>Stop the simulator.</summary>

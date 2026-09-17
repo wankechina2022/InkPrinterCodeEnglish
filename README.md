@@ -49,7 +49,7 @@ trademark or documentation — see [LICENSE](LICENSE) for the full statement.
 
 | Project | Type | Purpose |
 |---|---|---|
-| **`DominoA200Sdk`** | Class library | The client you reference. Hides TCP, framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. Dependency-free, so it stands alone — see **[DominoA200Sdk/README.md](DominoA200Sdk/README.md)** for how to reference and use it. |
+| **`DominoA200Sdk`** | Class library | The client you reference. Hides the transport (TCP **or** RS232 serial), framing, ACK/NAK handling, timeouts, FIFO mirroring and reconnect behind a small async API. No project dependencies, so it stands alone — see **[DominoA200Sdk/README.md](DominoA200Sdk/README.md)** for how to reference and use it. |
 | **`DominoMockServer`** | Console app | Simulates an A200+ over TCP. No printer required. Logs all traffic as hex. |
 | **`DemoConsoleApp`** | Console app | A short end-to-end demonstration of the SDK against the mock. |
 | **`DominoSdk.Harness`** | xUnit project | Automated tests that start the mock themselves and assert on protocol behaviour. |
@@ -91,8 +91,12 @@ raw hexadecimal:
 ```
     [08:14:22.310] [TX     ] 1B 49 31 32 04
     [08:14:22.318] [RX     ] 06
-    [08:14:22.325] [TX     ] 1B 4F 45 30 30 30 37 41 42 43 30 30 30 30 30 31 04
+    [08:14:22.325] [TX     ] 1B 4F 45 30 30 30 30 30 04
     [08:14:22.334] [RX     ] 06
+    ...
+    [08:14:22.511] [TX     ] 1B 4F 45 30 30 32 30 32 30 32 36 2D 30 39 2D 31 35 20 41 42 43 30 30 30 30 30 31 04
+    [08:14:22.520] [RX     ] 06
+  -> Submitted ABC000001 as JOB-000001  |  Pending in FIFO: 1
     ...
     [08:14:24.401] [RX     ] 32
 [event] Job finished, JobId:JOB-000001  Code:2026-09-15 ABC000001
@@ -128,6 +132,17 @@ string jobId = await printer.SendPrintJobAsync(job);
 
 int pending = await printer.GetFifoQueueCountAsync();
 Console.WriteLine($"Pending jobs in FIFO: {pending}");
+
+await printer.DisconnectAsync();
+```
+
+The same code works over a serial link — swap the client and the constructor:
+
+```csharp
+// COM3, 9600 baud, 8 data bits / 1 stop bit / no parity.
+var printer = new DominoA200SerialClient("COM3", baudRate: 9600);
+await printer.ConnectAsync();
+// ... identical API from here ...
 
 await printer.DisconnectAsync();
 ```
@@ -208,7 +223,8 @@ InkPrinterCode/                    ← repository root = solution root
 │   ├── Exceptions
 │   │   ├── PrinterNackException.cs
 │   │   └── PrinterTimeoutException.cs
-│   └── DominoA200Client.cs
+│   ├── DominoA200Client.cs         ← TCP/IP transport
+│   └── DominoA200SerialClient.cs   ← RS232 serial transport
 ├── DominoMockServer/              ← TCP simulator
 │   ├── MockPrinter.cs
 │   ├── MockFifoQueue.cs
@@ -248,12 +264,11 @@ dotnet test
 
 ## Requirements
 
-- **.NET 8 SDK** (the library, mock, demo and tests target `net8.0`)
-- **.NET 6 targeting pack / Desktop Runtime** — the `InkPrinterCode` WinForms host
-  targets `net6.0-windows` (the last LTS with Windows 7 support); building the full
-  solution needs the .NET 6 targeting pack, running the host needs the .NET 6 Desktop
-  Runtime (x64)
-- No external dependencies; the SDK is dependency-free by design
+- **.NET 8 SDK** (the library, mock, demo, tests and the `InkPrinterCode` WinForms host
+  all target .NET 8; the host targets `net8.0-windows` and needs the .NET 8 Desktop
+  Runtime to run)
+- The SDK's only package is **`System.IO.Ports`** (supplies `SerialPort` for the RS232
+  transport); the TCP client needs nothing beyond the base class library
 - Tests require the xUnit runner packages, restored automatically
 
 ---

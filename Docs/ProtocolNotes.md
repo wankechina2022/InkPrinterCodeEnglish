@@ -59,6 +59,21 @@ Everything in the payload is ASCII; code text is sent as bare characters with no
 barcode or QR encapsulation. Enclosing a code in a symbology is the printer template's
 responsibility, not the protocol's.
 
+#### Observed `OE` payloads
+
+| Payload (ASCII)       | Command           | Notes                                                                 |
+|-----------------------|-------------------|-----------------------------------------------------------------------|
+| `00017`               | FIFO depth query  | Sent when the caller asks for the queue depth.                        |
+| `0000` + `index`      | Clear cache queue | `index` is `0` (TCP/IP), `1` (RS232) or `2` (history).                 |
+| 4 digits + code text  | Send cached data  | The 4 digits are the zero-padded decimal length of the code text.      |
+
+The leading four bytes are **not** a uniform length field. For `send cached data` they
+are exactly the length of what follows, but for the depth query and the queue clear the
+digits are command-specific: `00017` is a fixed literal, and `0000` is followed by a
+queue index rather than by zero-length data. A parser therefore has to recognise those
+two commands by their literal payload, not by decoding a length — which is what the
+simulator in this repository does.
+
 ---
 
 ## 2. Response bytes
@@ -202,10 +217,10 @@ Sequence the SDK performs on connect:
 
 ```
 1. TCP connect to host:port
-2. send  1B 49 31 32 04           enable print-complete notification   → expect 0x06
-3. send  clear queue (index 0)                                        → expect 0x06
-4. send  clear queue (index 1)                                        → expect 0x06
-5. send  clear queue (index 2)                                        → expect 0x06
+2. send  1B 49 31 32 04                 enable print-complete notification  → expect 0x06
+3. send  1B 4F 45 30 30 30 30 30 04     clear queue index 0 (TCP/IP)        → expect 0x06
+4. send  1B 4F 45 30 30 30 30 31 04     clear queue index 1 (RS232)         → expect 0x06
+5. send  1B 4F 45 30 30 30 30 32 04     clear queue index 2 (history)       → expect 0x06
 6. ready to submit jobs
 ```
 

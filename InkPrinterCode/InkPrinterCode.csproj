@@ -2,10 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- [2026-09-11] Targeting .NET 6 — the last LTS with Windows 7 support (.NET 8 requires Win10 1607+).
-         Code verified free of .NET 8-only APIs and C# 11/12 syntax; Environment.TickCount64 is a
-         .NET Core 3.0+ API natively supported on net6.
-         Requires .NET 6 Desktop Runtime (x64). -->
+    <!-- [2026-09-11] Target framework is net8.0-windows. The earlier net6 downgrade was
+         reverted; the three packages below are locked to the 8.0 line and ship a
+         netstandard2.0 target, so they work on either. -->
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
@@ -16,8 +15,8 @@
        all settings live in the database SystemConfig table)
        Microsoft.Data.Sqlite : SQLite data access, official Microsoft package, no manual native dll shipping needed
        NPOI                  : Excel read/write (.xls / .xlsx); import takes the first column, export uses streaming SXSSF
-       Versions are locked to the 8.0 line ([2026-09-11] packages unchanged after the net6 downgrade:
-       all three packages ship netstandard2.0/net6 targets, directly usable on net6;
+       Versions are locked to the 8.0 line (all three packages ship a netstandard2.0
+       target, so they stay usable if the target framework ever moves;
        do NOT upgrade to 9.x/10.x); NPOI locked to the stable 2.7.5 line.
        [2026-09-10] Removed System.Configuration.ConfigurationManager — config files are deprecated
        (writing back to a config file previously caused format corruption that

@@ -8,7 +8,8 @@ with supporting types under `DominoA200Sdk.Core`, `DominoA200Sdk.Models` and
 
 ## `DominoA200Client`
 
-The single entry point. Create one per printer endpoint and reuse it.
+The TCP/IP client. Create one per printer endpoint and reuse it. For a serial link use
+`DominoA200SerialClient` instead (documented below); the two share the same API surface.
 
 ### Constructor
 
@@ -99,6 +100,58 @@ idempotent. `DisconnectAsync` raises `OnDisconnected` once.
 
 ---
 
+## `DominoA200SerialClient`
+
+The same client over an **RS232 serial link**. It exposes an identical method, property
+and event surface to `DominoA200Client` — only the constructor and the two endpoint
+properties differ, so moving a printer between TCP and serial is a constructor change.
+
+```csharp
+public DominoA200SerialClient(
+    string portName,
+    int baudRate = 9600,
+    int responseTimeoutMs = 3000,
+    int connectTimeoutMs = 5000,
+    bool autoReconnect = false,
+    int reconnectDelayMs = 2000)
+```
+
+| Parameter           | Default | Description                                                              |
+|---------------------|---------|--------------------------------------------------------------------------|
+| `portName`          | —       | Serial port name (for example `COM3`). Required; must not be blank.       |
+| `baudRate`          | `9600`  | RS232 baud rate. The link is always 8 data bits / 1 stop bit / no parity. |
+| `responseTimeoutMs` | `3000`  | How long to wait for an ACK/NAK before declaring a timeout.               |
+| `connectTimeoutMs`  | `5000`  | Accepted for signature parity only — `SerialPort.Open()` is synchronous.  |
+| `autoReconnect`     | `false` | When true, a lost link starts a background reconnect loop.                |
+| `reconnectDelayMs`  | `2000`  | Delay between reconnect attempts.                                        |
+
+Throws `ArgumentException` when `portName` is null or empty.
+
+### Additional properties
+
+| Member     | Type     | Description                  |
+|------------|----------|------------------------------|
+| `PortName` | `string` | Configured serial port name. |
+| `BaudRate` | `int`    | Configured baud rate.        |
+
+### How it differs from the TCP client
+
+| Aspect           | `DominoA200Client`                      | `DominoA200SerialClient`                     |
+|------------------|-----------------------------------------|----------------------------------------------|
+| Transport        | TCP socket, port `7000` by default      | `SerialPort`, 8N1, `9600` baud by default     |
+| Endpoint members | `Host` / `Port`                         | `PortName` / `BaudRate`                       |
+| Close            | RST-forced (`Shutdown` + `LingerState`) | Closes and disposes the port                  |
+| Connect failures | `SocketException` / `TimeoutException`  | `UnauthorizedAccessException` / `IOException` |
+| Framing, FIFO mirror, state machine, ACK/NAK/`0x32` handling | identical | identical |
+
+The `SerialPort` object is guarded by a single I/O lock, so the receive thread's read and
+the caller's write never touch it concurrently. A short read timeout keeps the receive
+loop responsive to `DisconnectAsync()`.
+
+---
+
+
+
 ## `PrintJob` (`DominoA200Sdk.Models`)
 
 An immutable job description.
@@ -155,7 +208,6 @@ state are no-ops. Thread-safe; the event is raised outside the internal lock.
 
 ```csharp
 public PrinterState State { get; }
-public bool IsIdle { get; }
 public event EventHandler<PrinterStateChangedEventArgs>? StateChanged;
 public void TransitionTo(PrinterState target);
 public void ReportAlarm();
@@ -184,10 +236,8 @@ The FIFO mirror. Thread-safe.
 | `Count`                      | Jobs awaiting completion.                                       |
 | `IsFull`                     | True at capacity (`CodenetFrame.FIFO_CAPACITY`).                |
 | `Enqueue(id, code)`          | Add a job, called after an ACK.                                 |
-| `Complete(jobId)`            | Remove a specific job, returning its entry or null.             |
 | `DequeueOldest()`            | Remove and return the oldest job, or null when empty.           |
 | `Clear()`                    | Discard everything; used on connect and disconnect.             |
-| `SnapshotIds()`              | Ordered snapshot of queued ids, for diagnostics.                |
 
 ---
 
@@ -249,7 +299,7 @@ printer.Stop();
 | Member            | Description                                                |
 |-------------------|------------------------------------------------------------|
 | `Port`            | The listening port.                                        |
-| `FifoCount`       | Current emulated queue depth.                              |
+| `DEFAULT_PRINT_DURATION_MS` | `const int`, default simulated print time (`1500` ms). |
 | `LogLine`         | Event raised for each logged traffic line.                 |
 | `Start()`         | Bind and begin accepting (non-blocking).                   |
 | `Stop()`          | Stop listening and drop all sessions.                      |
@@ -267,16 +317,7 @@ command grammar can be tested in isolation, without opening a socket.
 Command-level façade over the mock printer's protocol handling. Exposed so the
 emulated command grammar can be unit-tested without a socket.
 
-### Static byte constants
-
-| Name                | Value | Meaning                               |
-|---------------------|-------|---------------------------------------|
-| `AckByte`           | `0x06`| Positive acknowledgement (ACK).        |
-| `NakByte`           | `0x15`| Negative acknowledgement (NAK).        |
-| `PrintCompleteByte` | `0x32`| Unsolicited print-complete event.     |
-| `Terminator`        | `0x04`| Frame terminator (EOT).                |
-
-### Other members
+### Members
 
 | Member                  | Description                                                                 |
 |-------------------------|-----------------------------------------------------------------------------|
@@ -309,7 +350,6 @@ A job held by the mock FIFO, standing in for a real print job.
 
 | Member                                       | Type        | Description                              |
 |----------------------------------------------|-------------|------------------------------------------|
-| `MockJob(string jobId, string payload, DateTime queuedAt)` | constructor | Creates a mock job.               |
+| `MockJob(string jobId, string payload)`      | constructor | Creates a mock job.                      |
 | `JobId`                                      | `string`    | Identifier assigned by the mock.         |
 | `Payload`                                    | `string`    | The code text carried by the job.        |
-| `QueuedAt`                                   | `DateTime`  | Local time at which the job was admitted.|

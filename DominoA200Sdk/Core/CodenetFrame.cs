@@ -82,10 +82,36 @@ public static class CodenetFrame
     /// barcode or QR wrapper is applied.</param>
     public static byte[] BuildPrintJobFrame(string codeValue)
     {
-        // [2026-09-16] Validate the payload before framing (F5). The length field is a
-        // 4-digit zero-padded decimal, so it can encode at most 9999 characters; a
-        // null/empty payload, an over-length one, or any non-ASCII character would
-        // produce a frame the printer cannot parse, so reject it up front.
+        ValidatePrintJobPayload(codeValue);
+
+        // 4-digit zero-padded decimal length of the payload that follows it.
+        string lengthText = codeValue.Length.ToString("D4");
+        string payload = lengthText + codeValue;
+
+        return BuildOeFrame(payload);
+    }
+
+    /// <summary>
+    /// Verify that <paramref name="codeValue"/> can be carried inside an <c>OE</c>
+    /// print-job frame, and throw if it cannot.
+    ///
+    /// <para>
+    /// <b>Why a separate method.</b> The transport layer calls this <i>before</i> it
+    /// writes anything, so an invalid payload fails immediately as a caller error
+    /// instead of being framed, sent, and only then rejected by the printer.
+    /// </para>
+    /// </summary>
+    /// <param name="codeValue">The code text destined for the printer.</param>
+    /// <exception cref="ArgumentException">
+    /// The payload is null/empty, longer than 9999 characters, contains a non-ASCII
+    /// character, or contains the frame terminator <c>0x04</c>.
+    /// </exception>
+    public static void ValidatePrintJobPayload(string codeValue)
+    {
+        // [2026-09-16] The length field is a 4-digit zero-padded decimal, so it can
+        // encode at most 9999 characters; a null/empty payload, an over-length one, or
+        // any non-ASCII character would produce a frame the printer cannot parse, so
+        // reject it up front.
         if (string.IsNullOrEmpty(codeValue))
         {
             throw new ArgumentException("Print job payload must not be null or empty.", nameof(codeValue));
@@ -106,13 +132,20 @@ public static class CodenetFrame
                     "Print job payload contains a non-ASCII character (0x" + ((int)c).ToString("X2")
                     + "); only ASCII text is supported.", nameof(codeValue));
             }
+
+            // [2026-09-17] Reject the frame terminator inside the payload (F10). The
+            // receiver locates the end of a frame by scanning for the FIRST 0x04, so a
+            // payload byte of 0x04 would make the frame look terminated early: the tail
+            // of the code text would be silently dropped and the remainder re-scanned as
+            // stray bytes. Failing loudly here is far safer than losing codes on the
+            // production line.
+            if (c == EOT)
+            {
+                throw new ArgumentException(
+                    "Print job payload must not contain the frame terminator 0x04 (EOT); "
+                    + "it would truncate the frame mid-payload.", nameof(codeValue));
+            }
         }
-
-        // 4-digit zero-padded decimal length of the payload that follows it.
-        string lengthText = codeValue.Length.ToString("D4");
-        string payload = lengthText + codeValue;
-
-        return BuildOeFrame(payload);
     }
 
     /// <summary>
@@ -125,7 +158,8 @@ public static class CodenetFrame
     }
 
     /// <summary>
-    /// Build the "clear cache queue" frame: <c>1B 4F 45 30 30 30 35 &lt;queue&gt; 04</c>.
+    /// Build the "clear cache queue" frame:
+    /// <c>1B 4F 45 30 30 30 30 &lt;queue&gt; 04</c> (OE with payload <c>"0000" + index</c>).
     /// </summary>
     /// <param name="queueIndex">0 = TCP/IP queue, 1 = RS232 queue, 2 = history queue.
     /// Out-of-range values fall back to 0.</param>
@@ -201,8 +235,86 @@ public static class CodenetFrame
             return false;
         }
 
+        // [2026-09-17] OE frames declare their own payload length (F11). Trusting the
+        // first four payload digits blindly is fragile: a corrupt length, or a future
+        // command that reuses the "OE" prefix with a different layout, would produce a
+        // frame boundary that is silently wrong. Cross-check the declared length against
+        // the bytes actually present and only trust the terminator we scanned when they
+        // agree; otherwise resynchronise on this EOT.
+        if (buffer[1] == 0x4F && buffer[2] == 0x45)
+        {
+            int declaredLength;
+            if (!TryReadOeDeclaredLength(buffer, endIndex, out declaredLength))
+            {
+                // Not a length-prefixed OE frame (e.g. a fixed-layout command such as
+                // the FIFO query or the clear-queue frame); the terminator is the bound.
+                frameBytes = new byte[endIndex + 1];
+                buffer.CopyTo(0, frameBytes, 0, endIndex + 1);
+                return true;
+            }
+
+            if (buffer.Count < 3 + declaredLength + 1 || buffer[3 + declaredLength] != EOT)
+            {
+                // The declared length does not match the terminating byte. Report an
+                // incomplete frame and let the caller wait for more bytes rather than
+                // consuming a frame whose payload we cannot trust.
+                return false;
+            }
+
+            endIndex = 3 + declaredLength;
+        }
+
         frameBytes = new byte[endIndex + 1];
         buffer.CopyTo(0, frameBytes, 0, endIndex + 1);
+        return true;
+    }
+
+    /// <summary>
+    /// Read the length field of an <c>OE</c> frame from the four bytes following the
+    /// three-byte header.
+    ///
+    /// <para>
+    /// <b>Why this can fail.</b> Not every <c>OE</c> frame is length-prefixed: the FIFO
+    /// query (<c>"00017"</c>) and the clear-queue command (<c>"0000" + index</c>) are
+    /// fixed-layout literals. A frame whose first four payload bytes are not all decimal
+    /// digits, or whose declared length cannot line up with the terminator, is therefore
+    /// returned as "no length field" and the caller falls back to the scanned bound.
+    /// </para>
+    /// </summary>
+    /// <param name="buffer">The receive buffer, starting at the ESC header.</param>
+    /// <param name="endIndex">Index of the first <c>0x04</c> found by the caller.</param>
+    /// <param name="declaredLength">Output: the declared payload length in bytes.</param>
+    /// <returns><c>true</c> when all four bytes are decimal digits and the value is
+    /// consistent with a terminated frame.</returns>
+    private static bool TryReadOeDeclaredLength(List<byte> buffer, int endIndex, out int declaredLength)
+    {
+        declaredLength = 0;
+
+        if (buffer.Count < 7 || endIndex < 7)
+        {
+            return false;
+        }
+
+        int value = 0;
+        for (int i = 3; i <= 6; i++)
+        {
+            int digit = buffer[i] - 0x30;
+            if (digit < 0 || digit > 9)
+            {
+                return false;
+            }
+
+            value = value * 10 + digit;
+        }
+
+        // The declared length covers the four length digits themselves plus the code
+        // text, so a plausible frame is at least 4 payload bytes long.
+        if (value < 4)
+        {
+            return false;
+        }
+
+        declaredLength = value;
         return true;
     }
 

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/slnLaunch.v1.json",
+  "profiles": [
+    {
+      "name": "Mock + Demo",
+      "projects": {
+        "DominoMockServer\\DominoMockServer.csproj": {
+          "action": "StartWithoutDebugging"
+        },
+        "DemoConsoleApp\\DemoConsoleApp.csproj": {
+          "action": "Start"
+        }
+      }
+    }
+  ]
+}
