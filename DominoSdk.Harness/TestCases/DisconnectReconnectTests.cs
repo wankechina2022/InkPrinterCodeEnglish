@@ -112,6 +112,21 @@ public sealed class DisconnectReconnectTests
         DominoMockServer.MockPrinter simulator =
             new DominoMockServer.MockPrinter(port, printDurationMs: 400, quiet: true);
 
+        // [2026-09-17] Diagnostics: record BOTH sides of the wire so a failure says
+        // which side went quiet. The client already exposes TrafficLogger and the
+        // simulator already exposes LogLine, so no production code is touched.
+        List<string> wire = new List<string>();
+
+        Action<string> record = line =>
+        {
+            lock (wire)
+            {
+                wire.Add(line);
+            }
+        };
+
+        simulator.LogLine += (sender, line) => record("SIM  " + line);
+
         simulator.Start();
 
         using DominoA200Client client = new DominoA200Client(
@@ -120,6 +135,8 @@ public sealed class DisconnectReconnectTests
             responseTimeoutMs: 500,
             autoReconnect: true,
             reconnectDelayMs: 300);
+
+        client.TrafficLogger = record;
 
         TaskCompletionSource<bool> reconnecting =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -158,12 +175,27 @@ public sealed class DisconnectReconnectTests
             // Bring the simulator back on the SAME port so recovery can succeed.
             simulator.Start();
 
-            // [2026-09-16] Poll for the actual reconnection rather than sleeping a fixed
+            // [2026-09-17] Poll for the actual reconnection rather than sleeping a fixed
             // interval, so the assertion is event-driven.
             DateTime reconnectDeadline = DateTime.UtcNow.AddSeconds(10);
             while (DateTime.UtcNow < reconnectDeadline && !client.IsConnected)
             {
                 await Task.Delay(100);
+            }
+
+            // [2026-09-17] Diagnostics: on failure, attach the captured wire log so the
+            // test output says WHY the client never came back - no separate run needed.
+            if (!client.IsConnected)
+            {
+                string dump;
+                lock (wire)
+                {
+                    dump = string.Join(Environment.NewLine, wire);
+                }
+
+                Console.WriteLine("--- capture: client never became connected ---");
+                Console.WriteLine(dump);
+                Console.WriteLine("--- end capture ---");
             }
 
             Assert.True(client.IsConnected,
