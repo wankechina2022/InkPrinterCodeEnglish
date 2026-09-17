@@ -363,9 +363,18 @@ MigrationBackup/
 FodyWeavers.xsd
 
 ###############################################################################
-# WorkBuddy project data
+# Local AI-assistant working data  --  NEVER publish
 #
-# .workbuddy/ holds local working notes for this repository. It is not part of
-# the deliverable and must not be published.
+# The directories below hold local working notes and tool state. They are not
+# part of the deliverable and must not appear in a public repository.
+# The trailing slash on each rule also covers anything nested inside.
 ###############################################################################
 .workbuddy/
+.workbuddy
+**/.workbuddy/
+**/.workbuddy
+.codebuddy/
+.codebuddy
+**/.codebuddy/
+**/.codebuddy
+

@@ -485,7 +485,9 @@ public sealed class MockPrinter : IDisposable
         /// complete frame is available yet.</returns>
         private static int MeasureFrame(List<byte> buffer)
         {
-            if (buffer.Count < 2 || buffer[0] != ESC)
+            // A frame is at least "1B <cmd> ... 04" and every signature below reads up
+            // to buffer[2], so a shorter buffer can never contain a complete frame.
+            if (buffer.Count < 3 || buffer[0] != ESC)
             {
                 return 0;
             }

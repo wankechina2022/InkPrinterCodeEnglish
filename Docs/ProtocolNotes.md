@@ -47,13 +47,26 @@ A fixed example observed during setup:
 ```
 
 The four bytes immediately after `OE` are a **decimal, zero-padded, 4-digit length**
-of the payload that follows. For example, sending the code text `AB12345` (7
-characters) produces:
+of the code text that follows -- it counts the code text **only**, not the four length
+digits themselves and not the terminator. For example, sending the code text `AB12345`
+(7 characters) produces:
 
 ```
 1B 4F 45 30 30 30 37 41 42 31 32 33 34 35 04
          └─ "0007" ─┘ └──── "AB12345" ─────┘
 ```
+
+A full frame is therefore `3 + 4 + len + 1` bytes, where `len` is the declared value:
+
+```
+1B 4F 45 30 30 32 30 32 30 32 36 2D 30 39 2D 31 35 20 41 42 43 30 30 30 30 30 31 04
+└─ hdr ─┘ └─ len ─┘ └──────────────── code text (20 bytes) ─────────────────┘ └term┘
+```
+
+Consequently the code text must never contain the terminator `0x04`. A receiver that
+locates the frame end by scanning for the first `0x04` would otherwise cut the frame
+short and silently discard the rest of the code, so the SDK rejects such a payload
+before it reaches the wire.
 
 Everything in the payload is ASCII; code text is sent as bare characters with no
 barcode or QR encapsulation. Enclosing a code in a symbology is the printer template's
@@ -208,6 +221,28 @@ The receive buffer is drained one logical unit at a time:
 
 The order of these checks matters. The single-byte events are tested first precisely
 because they can appear immediately in front of a frame header.
+
+### 5.4 Length-aware framing
+
+Scanning for the first `0x04` alone is not enough for the `OE` family, because the frame
+declares its own length. When the head of the buffer is `1B 4F 45` and the next four
+bytes are decimal digits forming a non-zero value, the frame end is the terminator at
+`3 + 4 + declared`. The parser accepts the frame only when a `0x04` actually sits at
+that offset; otherwise it reports the frame as incomplete and waits for more bytes.
+
+This matters in three situations:
+
+- **A corrupt or truncated length field.** The declared value cannot line up with a
+  terminator, so the frame is never consumed on a guess.
+- **A future command reusing the `OE` prefix with a different layout.** The mismatch is
+  detected instead of silently producing a wrong frame boundary.
+- **Coalesced or fragmented reads.** A declared offset turns a "wait for more bytes"
+  decision into a precise one, so a partial frame is never mistaken for a whole one.
+
+The two fixed-layout commands carry no usable length field and are recognised by their
+literal payload first (`00017` for the depth query, `0000` + index for the queue clear);
+for those, and for any unrecognised command family, the scanned `0x04` remains the frame
+boundary.
 
 ---
 
