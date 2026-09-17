@@ -170,8 +170,12 @@
         /// </summary>
         public static string ConnectionString
         {
-            // [2026-09-16] P1: append BusyTimeout so concurrent writers do not immediately fail with SQLITE_BUSY
-            get { return "Data Source=" + DbFilePath + ";BusyTimeout=5000;"; }
+            // [2026-09-16] P1: busy handling for concurrent writers.
+            // [2026-09-17 fix] BusyTimeout is NOT a Microsoft.Data.Sqlite connection-string
+            //   keyword (that is System.Data.SQLite syntax) — putting it here made every
+            //   connection throw ArgumentException at startup. The equivalent is the
+            //   SqliteConnection.BusyTimeout property, set in SqliteHelper.CreateConnection.
+            get { return "Data Source=" + DbFilePath + ";"; }
         }
 
         // ============================================================

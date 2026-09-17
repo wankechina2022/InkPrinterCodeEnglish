@@ -6,7 +6,7 @@
          Code verified free of .NET 8-only APIs and C# 11/12 syntax; Environment.TickCount64 is a
          .NET Core 3.0+ API natively supported on net6.
          Requires .NET 6 Desktop Runtime (x64). -->
-    <TargetFramework>net6.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>

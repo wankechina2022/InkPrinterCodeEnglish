@@ -38,6 +38,14 @@ namespace InkPrinterCode.DAL
             ValidateHelper.EnsureFolderExists(ConfigHelper.DbFolderPath);
 
             SqliteConnection connection = new SqliteConnection(ConfigHelper.ConnectionString);
+
+            // [2026-09-17 fix] Concurrent-writer busy handling, moved here from the
+            // connection string: BusyTimeout is a SqliteConnection property in
+            // Microsoft.Data.Sqlite, not a connection-string keyword. 5 s of busy-wait
+            // lets the background print thread and the UI finish their short writes
+            // instead of failing immediately with SQLITE_BUSY (database is locked).
+            connection.BusyTimeout = TimeSpan.FromMilliseconds(5000);
+
             connection.Open();
             return connection;
         }
