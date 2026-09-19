@@ -362,12 +362,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-.workbuddy/
-.workbuddy
-**/.workbuddy/
-**/.workbuddy
-.codebuddy/
-.codebuddy
-**/.codebuddy/
-**/.codebuddy
+# Local scratch / tool state directories
+.work*/
+.work*
+.code*/
+.code*
 
