@@ -11,6 +11,11 @@ the whole thing can be evaluated end to end without a physical printer.
 └──────────────┘   0x06/0x32   └──────────────────┘
 ```
 
+> **用途限制 / Usage restriction**
+> 本仓库全部源代码**仅供学习与技术验证**，帮助理解 A200+ Codenet 字节级协议的集成与测试方法。
+> **严禁用于任何商业用途、商业产品集成或生产环境。** 如需商业部署，请获取设备厂商官方 SDK。
+> 完整合规说明见下方「合规说明」一节。
+
 ---
 
 ## ⚠️ Important notice — read first
@@ -22,6 +27,18 @@ the whole thing can be evaluated end to end without a physical printer.
 > Domino-related SDK.**
 
 ### Compliance statement / 合规说明
+
+> **核心约束 / Core constraint — 源代码仅限学习与技术验证**
+> 本仓库所有源代码**仅供个人学习、技术研究与原型验证使用**，**明确禁止用于任何商业用途**
+> （包括但不限于商业产品集成、对外提供服务、生产环境部署）。此约束为本仓库对使用者的
+> 明示许可条件；超出此范围的任何使用均不在授权之内，相关法律责任由使用者自行承担。
+>
+> **Core constraint:** all source code in this repository is provided **for personal
+> learning, technical study and prototyping only**. Any **commercial use** — including
+> integration into a commercial product, offering it as a service, or deployment in a
+> production environment — is **expressly prohibited**. This is a condition of the
+> permission granted by this repository; use outside it is not licensed, and the user
+> bears all resulting legal responsibility.
 
 > **本协议是通过网络抓包（packet capture）逆向工程（reverse engineering）反向分析得到的，
 > 本项目仅用于学习和技术验证，不得用于商业用途。**

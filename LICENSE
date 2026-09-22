@@ -24,6 +24,26 @@ SOFTWARE.
 IMPORTANT NOTICE — SCOPE OF THIS LICENSE
 ================================================================================
 
+>> 核心约束（禁止商用）/ CORE RESTRICTION — NO COMMERCIAL USE <<
+
+本仓库全部源代码及相关文档**仅供学习与技术验证（learning and technical
+verification）使用**。
+
+**严禁**将其用于任何商业目的，包括但不限于：
+  - 集成进商业产品、对外销售或分发；
+  - 提供商业服务、SaaS 或付费支持；
+  - 部署于生产环境或任何营利性业务场景。
+
+上述限制构成本许可的**明示条件**。超出本范围的使用不在授权之内，由此产生的
+任何法律责任、侵权后果及商业风险**完全由使用者自行承担**，作者与贡献者对此
+不承担任何责任。
+
+This is a binding condition of the licence granted below. Any use outside the
+scope described above is NOT authorised; all legal, infringement and commercial
+risks arising from such use are borne solely by the user.
+
+--------------------------------------------------------------------------------
+
 This project is built by capturing network traffic and reverse engineering the
 observed wire behaviour. The protocol knowledge embodied here was obtained solely
 through packet capture in our own integration environment — for learning and
